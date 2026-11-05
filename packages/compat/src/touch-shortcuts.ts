@@ -1,0 +1,422 @@
+// Standard DOM events in the isolated world. No Figma functions or selectors.
+const runtime = globalThis.__folio;
+if (runtime && !runtime.setTouchShortcutModifiers) {
+  // Two bits per modifier (1 = next action, 2 = locked): Shift 0, Alt 2, Meta 4, Control 6.
+  let mask = 0;
+  let heldKey: string | undefined;
+  let replaying = false;
+  let composing = false;
+  let suppressMouseUntil = 0;
+  let routingTouch = false;
+  let keyMask: number | undefined;
+  const contacts = new Map<
+    number,
+    {
+      target: Element;
+      init: PointerEventInit;
+      mask: number;
+      x: number;
+      y: number;
+      moved: boolean;
+      mouse: boolean;
+    }
+  >();
+  const flags = (value = mask) => ({
+    shiftKey: (value & 3) !== 0,
+    altKey: ((value >> 2) & 3) !== 0,
+    metaKey: ((value >> 4) & 3) !== 0,
+    ctrlKey: ((value >> 6) & 3) !== 0,
+  });
+  const dispatch = (target: EventTarget, event: Event) => {
+    replaying = true;
+    try {
+      return target.dispatchEvent(event);
+    } finally {
+      replaying = false;
+    }
+  };
+  const target = () =>
+    document.activeElement ?? document.body ?? document.documentElement;
+  const codes: Record<string, [string, number]> = {
+    Shift: ["ShiftLeft", 16],
+    Alt: ["AltLeft", 18],
+    Meta: ["MetaLeft", 91],
+    Control: ["ControlLeft", 17],
+    Backspace: ["Backspace", 8],
+    "\\": ["Backslash", 220],
+    v: ["KeyV", 86],
+    f: ["KeyF", 70],
+    r: ["KeyR", 82],
+    o: ["KeyO", 79],
+    l: ["KeyL", 76],
+    p: ["KeyP", 80],
+    t: ["KeyT", 84],
+    h: ["KeyH", 72],
+    c: ["KeyC", 67],
+    s: ["KeyS", 83],
+    z: ["KeyZ", 90],
+    d: ["KeyD", 68],
+    g: ["KeyG", 71],
+    k: ["KeyK", 75],
+    m: ["KeyM", 77],
+    ArrowLeft: ["ArrowLeft", 37],
+    ArrowUp: ["ArrowUp", 38],
+    ArrowRight: ["ArrowRight", 39],
+    ArrowDown: ["ArrowDown", 40],
+  };
+  const key = (name: string, down: boolean, value = mask, repeat = false) => {
+    if (composing) return;
+    const code = codes[name];
+    if (!code) return;
+    dispatch(
+      target(),
+      new KeyboardEvent(down ? "keydown" : "keyup", {
+        key: name,
+        code: code[0],
+        keyCode: code[1],
+        which: code[1],
+        repeat,
+        bubbles: true,
+        cancelable: true,
+        composed: true,
+        ...flags(value),
+      }),
+    );
+  };
+  const setMask = (next: number) => {
+    const before = flags();
+    mask = next;
+    const after = flags();
+    for (const [name, field] of [
+      ["Shift", "shiftKey"],
+      ["Alt", "altKey"],
+      ["Meta", "metaKey"],
+      ["Control", "ctrlKey"],
+    ] as const)
+      if (before[field] !== after[field]) key(name, after[field]);
+    try {
+      globalThis.webkit?.messageHandlers?.touchShortcutState?.postMessage(mask);
+    } catch {
+      /* Detached frame. */
+    }
+  };
+  const consume = () => {
+    let next = mask;
+    for (const offset of [0, 2, 4, 6])
+      if (((next >> offset) & 3) === 1) next &= ~(3 << offset);
+    if (next !== mask) setMask(next);
+  };
+  const reset = () => {
+    for (const contact of contacts.values()) {
+      dispatch(
+        contact.target,
+        new PointerEvent("pointercancel", { ...contact.init, buttons: 0 }),
+      );
+      dispatch(
+        contact.target,
+        new MouseEvent("mouseup", { ...contact.init, buttons: 0 }),
+      );
+    }
+    contacts.clear();
+    routingTouch = false;
+    keyMask = undefined;
+    if (heldKey) key(heldKey, false);
+    heldKey = undefined;
+    setMask(0);
+    composing = false;
+  };
+  const suppress = (event: Event) => {
+    event.stopImmediatePropagation();
+    if (event.cancelable) event.preventDefault();
+  };
+  const pointer = (event: Event) => {
+    if (replaying || !event.isTrusted || !(event instanceof PointerEvent))
+      return;
+    if (event.type === "pointerdown") {
+      suppressMouseUntil = 0;
+      if (!contacts.size) routingTouch = false;
+    }
+    if (!["touch", "pen", "mouse"].includes(event.pointerType)) return;
+    // Touch Only canvas arbitration owns the delay and multi-finger handoff, even with a latch.
+    if (!contacts.has(event.pointerId) && runtime.ownsCanvasTouch?.(event))
+      return;
+    if (
+      event.type === "pointerdown" &&
+      mask !== 0 &&
+      event.target instanceof Element
+    ) {
+      runtime.cancelCanvasContact?.();
+      routingTouch = event.pointerType !== "mouse";
+      contacts.set(event.pointerId, {
+        target: event.target,
+        init: {},
+        mask,
+        x: event.clientX,
+        y: event.clientY,
+        moved: false,
+        mouse: true,
+      });
+    }
+    const contact = contacts.get(event.pointerId);
+    if (!contact) return;
+    suppress(event);
+    suppressMouseUntil = performance.now() + 800;
+    contact.moved ||=
+      Math.hypot(event.clientX - contact.x, event.clientY - contact.y) > 5;
+    const init: PointerEventInit = {
+      bubbles: true,
+      cancelable: true,
+      composed: true,
+      view: window,
+      pointerId: event.pointerId,
+      pointerType: "mouse",
+      isPrimary: event.isPrimary,
+      clientX: event.clientX,
+      clientY: event.clientY,
+      screenX: event.screenX,
+      screenY: event.screenY,
+      button: event.type === "pointercancel" ? 0 : event.button,
+      buttons: event.buttons,
+      pressure: event.pressure,
+      shiftKey: event.shiftKey || flags(contact.mask).shiftKey,
+      altKey: event.altKey || flags(contact.mask).altKey,
+      metaKey: event.metaKey || flags(contact.mask).metaKey,
+      ctrlKey: event.ctrlKey || flags(contact.mask).ctrlKey,
+    };
+    contact.init = init;
+    const accepted = dispatch(
+      contact.target,
+      new PointerEvent(event.type, init),
+    );
+    if (event.type === "pointerdown" && !accepted) contact.mouse = false;
+    const mouseType = (
+      {
+        pointerdown: "mousedown",
+        pointermove: "mousemove",
+        pointerup: "mouseup",
+        pointercancel: "mouseup",
+      } as Record<string, string>
+    )[event.type];
+    if (mouseType && contact.mouse)
+      dispatch(
+        contact.target,
+        new MouseEvent(mouseType, {
+          ...init,
+          button: mouseType === "mousemove" ? 0 : init.button,
+        }),
+      );
+    if (event.type === "pointerup" || event.type === "pointercancel") {
+      contacts.delete(event.pointerId);
+      if (event.type === "pointerup" && !contact.moved && contact.mouse)
+        dispatch(
+          contact.target,
+          new MouseEvent("click", { ...init, detail: 1 }),
+        );
+      if (event.type === "pointercancel") reset();
+      else if (!contacts.size) consume();
+    }
+  };
+  const compatibility = (event: Event) => {
+    if (replaying || !event.isTrusted) return;
+    if (event instanceof TouchEvent) {
+      if (routingTouch) suppress(event);
+      if (
+        (event.type === "touchend" || event.type === "touchcancel") &&
+        !event.touches.length
+      )
+        routingTouch = false;
+    } else if (
+      event instanceof MouseEvent &&
+      performance.now() < suppressMouseUntil
+    ) {
+      // Only suppress compatibility mouse input; a real pointer remains usable.
+      if (!(event instanceof PointerEvent) || event.pointerType !== "mouse")
+        suppress(event);
+    }
+  };
+  const keyboard = (event: Event) => {
+    if (replaying || !event.isTrusted || !(event instanceof KeyboardEvent))
+      return;
+    // Keep trusted IME events intact, including WebKit's boundary events with code 229.
+    if (composing || event.isComposing || event.keyCode === 229) {
+      keyMask = undefined;
+      return;
+    }
+    // WebKit must receive trusted Tab for native form traversal. Synthetic replay
+    // cannot perform that default action. Physical modifiers and Ctrl+Tab stay native.
+    if (event.key === "Tab") return;
+    if (["Shift", "Alt", "Meta", "Control"].includes(event.key)) return;
+    const value = event.type === "keydown" ? mask : (keyMask ?? mask);
+    if (!value) return;
+    suppress(event);
+    if (event.type === "keydown") keyMask = value;
+    const held = flags(value);
+    dispatch(
+      event.target ?? target(),
+      new KeyboardEvent(event.type, {
+        key: event.key,
+        code: event.code,
+        location: event.location,
+        repeat: event.repeat,
+        isComposing: event.isComposing,
+        keyCode: event.keyCode,
+        which: event.which,
+        bubbles: true,
+        cancelable: true,
+        composed: true,
+        shiftKey: event.shiftKey || held.shiftKey,
+        altKey: event.altKey || held.altKey,
+        metaKey: event.metaKey || held.metaKey,
+        ctrlKey: event.ctrlKey || held.ctrlKey,
+      }),
+    );
+    if (event.type === "keyup") {
+      keyMask = undefined;
+      consume();
+    }
+  };
+  const wheel = (event: Event) => {
+    if (replaying || !(event instanceof WheelEvent) || !mask) return;
+    const held = flags(contacts.values().next().value?.mask ?? mask);
+    // Existing canvas and pinch adapters also dispatch wheel events. Retain their ctrl flag.
+    suppress(event);
+    dispatch(
+      event.target ?? target(),
+      new WheelEvent("wheel", {
+        bubbles: true,
+        cancelable: true,
+        composed: true,
+        clientX: event.clientX,
+        clientY: event.clientY,
+        deltaX: event.deltaX,
+        deltaY: event.deltaY,
+        deltaZ: event.deltaZ,
+        deltaMode: event.deltaMode,
+        ...held,
+        ctrlKey: event.ctrlKey || held.ctrlKey,
+      }),
+    );
+  };
+  const composition = (event: Event) => {
+    if (!event.isTrusted) return;
+    composing = event.type === "compositionstart";
+    keyMask = undefined;
+    heldKey = undefined;
+  };
+  const groups: [string[], EventListener][] = [
+    [["compositionstart", "compositionend"], composition],
+    [["pointerdown", "pointermove", "pointerup", "pointercancel"], pointer],
+    [
+      [
+        "touchstart",
+        "touchmove",
+        "touchend",
+        "touchcancel",
+        "mousedown",
+        "mousemove",
+        "mouseup",
+        "click",
+      ],
+      compatibility,
+    ],
+    [["keydown", "keyup"], keyboard],
+    [["wheel"], wheel],
+  ];
+  for (const [names, listener] of groups)
+    for (const name of names)
+      window.addEventListener(name, listener, {
+        capture: true,
+        passive: false,
+      });
+  for (const name of ["blur", "pagehide"]) window.addEventListener(name, reset);
+  const visibility = () => {
+    if (document.hidden) reset();
+  };
+  document.addEventListener("visibilitychange", visibility);
+  runtime.setTouchShortcutModifiers = (value) => {
+    if (
+      Number.isInteger(value) &&
+      value >= 0 &&
+      value <= 170 &&
+      [0, 2, 4, 6].every((offset) => ((value >> offset) & 3) <= 2)
+    )
+      setMask(value);
+  };
+  // Fixed commands as standard chords; latched modifiers apply. down true/false holds a key
+  // (repeat on further downs) until release, undefined presses it once.
+  const chords: Record<string, [string, number]> = {
+    delete: ["Backspace", 0],
+    toggleDevMode: ["d", 1],
+    toggleUI: ["\\", 16],
+    minimizeUI: ["\\", 17],
+    move: ["v", 0],
+    frame: ["f", 0],
+    rectangle: ["r", 0],
+    ellipse: ["o", 0],
+    line: ["l", 0],
+    pen: ["p", 0],
+    text: ["t", 0],
+    hand: ["h", 0],
+    comment: ["c", 0],
+    arrow: ["l", 1],
+    pencil: ["p", 1],
+    section: ["s", 1],
+    slice: ["s", 0],
+    undo: ["z", 16],
+    redo: ["z", 17],
+    duplicate: ["d", 16],
+    group: ["g", 16],
+    ungroup: ["g", 17],
+    frameSelection: ["g", 20],
+    // Phone tool pill. Scale is K; Actions ⌘K and Place image ⇧⌘K are unverified on Folio.
+    scale: ["k", 0],
+    actions: ["k", 16],
+    placeImage: ["k", 17],
+    // Dev Mode tools, Shift+M and Shift+T per Figma's "Add measurements and annotate designs"
+    // help article (help.figma.com/hc/en-us/articles/20774752502935); unverified on Folio.
+    measurement: ["m", 1],
+    annotation: ["t", 1],
+  };
+  runtime.touchShortcutKey = (name, down) => {
+    if (composing) return;
+    const chord = chords[name];
+    const actual = chord?.[0] ?? name;
+    if (!codes[actual]) return;
+    const value = mask | (chord?.[1] ?? 0);
+    if (down !== false) {
+      if (heldKey && heldKey !== actual) key(heldKey, false);
+      key(actual, true, value, down === true && heldKey === actual);
+      heldKey = down ? actual : undefined;
+      if (down) return;
+    } else if (heldKey !== actual) return;
+    key(actual, false, value);
+    heldKey = undefined;
+    consume();
+  };
+  // Phone fallback is a momentary chord, independent of held/latched modifiers.
+  runtime.minimizePhoneUI = () => {
+    if (composing) return;
+    key("\\", true, 17);
+    key("\\", false, 17);
+  };
+  runtime.touchShortcutFlags = () => flags();
+  runtime.consumeTouchShortcutModifiers = consume;
+  runtime.resetTouchShortcuts = reset;
+  runtime.disposeTouchShortcuts = () => {
+    reset();
+    for (const [names, listener] of groups)
+      for (const name of names)
+        window.removeEventListener(name, listener, true);
+    for (const name of ["blur", "pagehide"])
+      window.removeEventListener(name, reset);
+    document.removeEventListener("visibilitychange", visibility);
+    delete runtime.setTouchShortcutModifiers;
+    delete runtime.touchShortcutKey;
+    delete runtime.minimizePhoneUI;
+    delete runtime.touchShortcutFlags;
+    delete runtime.consumeTouchShortcutModifiers;
+    delete runtime.resetTouchShortcuts;
+    delete runtime.disposeTouchShortcuts;
+  };
+}
+export {};

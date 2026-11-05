@@ -1,0 +1,19 @@
+<!doctype html>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'">
+<title>Popup fixture</title>
+<style>body{font:24px system-ui;padding:30px}button{display:block;font:inherit;margin:25px 0;padding:15px}</style>
+<h1>Popup fixture</h1>
+<p id="result">Checking opener</p>
+<button id="complete-account" onclick="window.opener.postMessage('folio-account-complete','*'); window.close()">Complete account fixture</button>
+<button onclick="window.close()">Close from page</button>
+<button onclick="document.getElementById('nested').textContent=window.open('about:blank')?'FAIL: nested opened':'PASS: nested rejected'">Try nested popup</button>
+<p id="nested"></p>
+<script>
+window.addEventListener('message',event=>{
+ if(event.source===window.opener && event.data==='folio-auth-ack')
+  document.getElementById('result').textContent='PASS: opener acknowledgement received';
+});
+if(window.opener) window.opener.postMessage('folio-auth-fixture','*');
+else document.getElementById('result').textContent='FAIL: no opener';
+</script>

@@ -1,0 +1,42 @@
+<!doctype html>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src blob: data:">
+<title>Native integration lab</title>
+<style>body{font:20px system-ui;padding:30px}button,input{font:inherit;margin:16px;display:block}</style>
+<h1>Native integration lab</h1>
+<label>Import image <input aria-label="Import image" type="file" accept="image/*"></label>
+<label>Import files <input aria-label="Import files" type="file" multiple></label>
+<p id="selection">No selection</p>
+<button id="blob">Download blob</button>
+<button id="multiple">Download three blobs</button>
+<button id="large">Download 16 MiB blob</button>
+<button id="oversize">Download over limit</button>
+<button id="png">Download PNG</button>
+<a download="data-export.txt" href="data:text/plain;base64,Rm9saW8gZXhwb3J0IHRlc3Q=">Download data</a>
+<script>
+for(const input of document.querySelectorAll('input')) input.onchange=()=>{
+ document.getElementById('selection').textContent='Selected '+input.files.length+' file(s)';
+};
+document.getElementById('blob').onclick=()=>{
+ const url=URL.createObjectURL(new Blob(['Folio export test'],{type:'text/plain'}));
+ const a=document.createElement('a');a.href=url;a.download='blob-export.txt';a.click();
+ setTimeout(()=>URL.revokeObjectURL(url),60000);
+};
+function downloadFixture(parts,name,type){
+ const url=URL.createObjectURL(new Blob(parts,{type}));
+ const a=document.createElement('a');a.href=url;a.download=name;a.click();
+ setTimeout(()=>URL.revokeObjectURL(url),60000);
+}
+document.getElementById('multiple').onclick=()=>{
+ for(let i=1;i<=3;i++) downloadFixture(['Folio queue fixture '+i],'queue-'+i+'.txt','text/plain');
+};
+document.getElementById('large').onclick=()=>downloadFixture([new Uint8Array(16*1024*1024)],'bounded-fixture.bin','application/octet-stream');
+document.getElementById('oversize').onclick=()=>downloadFixture([new Uint8Array(33*1024*1024)],'over-limit-fixture.bin','application/octet-stream');
+document.getElementById('png').onclick=()=>{
+ const canvas=document.createElement('canvas');canvas.width=160;canvas.height=160;
+ const context=canvas.getContext('2d');
+ context.fillStyle='#1769e0';context.fillRect(0,0,80,160);
+ context.fillStyle='#ff9e24';context.fillRect(80,0,80,160);
+ canvas.toBlob(blob=>{if(blob)downloadFixture([blob],'local-fixture.png','image/png');});
+};
+</script>

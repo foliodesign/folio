@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; style-src 'unsafe-inline'; script-src 'none'"
+    />
+    <title>Folio memory lab</title>
+    <style>
+      body {
+        font: 18px system-ui;
+        padding: 24px;
+        max-width: 800px;
+        background: #fff;
+        color: #111;
+      }
+      label {
+        display: block;
+        margin: 14px 0;
+      }
+      input,
+      select,
+      button {
+        font: inherit;
+        padding: 8px;
+      }
+      button {
+        margin: 8px;
+      }
+      pre {
+        white-space: pre-wrap;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Folio memory lab</h1>
+    <p>
+      Offline allocation experiments inspired by the description of WebKit bug
+      268816. Retained Uint8Array chunks and a separate WASM Memory.grow ramp.
+      No third-party test code.
+    </p>
+    <p>
+      Each step is saved natively before allocation and after success. A
+      termination gives a lower bound, not an exact memory ceiling. Reload
+      releases this run's allocations. Simulator results are smoke tests only.
+    </p>
+    <label
+      >Test
+      <select id="kind">
+        <option value="typed-array">TypedArray</option>
+        <option value="wasm">WASM</option>
+      </select></label
+    >
+    <label
+      >Step MiB <input id="step" type="number" min="1" max="512" value="16"
+    /></label>
+    <label
+      >Stop at MiB
+      <input id="limit" type="number" min="1" max="8192" value="256"
+    /></label>
+    <label
+      >Delay ms <input id="delay" type="number" min="50" max="5000" value="250"
+    /></label>
+    <label
+      >Stop after seconds
+      <input id="timeout" type="number" min="1" max="600" value="60"
+    /></label>
+    <label
+      ><input id="touch" type="checkbox" checked /> Touch every 4 KiB page to
+      commit memory</label
+    >
+    <button id="start">Start</button><button id="stop" disabled>Stop</button>
+    <pre id="result" role="status">
+Ready. Default cap 256 MiB; raise it explicitly for a device ceiling test.</pre
+    >
+  </body>
+</html>

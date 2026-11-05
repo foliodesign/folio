@@ -1,0 +1,16 @@
+{
+  "name": "folio",
+  "private": true,
+  "packageManager": "pnpm@12.9.1",
+  "scripts": {
+    "typecheck": "pnpm --filter @folio/compat typecheck",
+    "build": "pnpm --filter @folio/compat build",
+    "check:compat": "pnpm --filter @folio/compat check:compat",
+    "lint": "prettier --check packages/compat package.json pnpm-workspace.yaml",
+    "format:write": "prettier --write packages/compat package.json pnpm-workspace.yaml",
+    "test": "pnpm check:compat && pnpm --filter @folio/compat test"
+  },
+  "devDependencies": {
+    "prettier": "3.6.2"
+  }
+}

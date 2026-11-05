@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; style-src 'unsafe-inline'; script-src 'none'; img-src 'none'; connect-src 'none'"
+    />
+    <title>Folio input lab</title>
+    <style>
+      body {
+        font: 17px system-ui;
+        margin: 24px;
+        background: #f6f6f6;
+        color: #222;
+      }
+      h1 {
+        margin: 0 0 8px;
+      }
+      section {
+        background: white;
+        padding: 16px;
+        margin: 16px 0;
+        border: 1px solid #bbb;
+        border-radius: 8px;
+      }
+      button,
+      select,
+      input,
+      textarea {
+        font: inherit;
+        padding: 8px;
+      }
+      #events {
+        height: 180px;
+        overflow: auto;
+        font: 12px monospace;
+        white-space: pre-wrap;
+      }
+      canvas {
+        width: 100%;
+        height: 180px;
+        touch-action: none;
+        background: #eee;
+        border: 1px solid #555;
+      }
+      #arena {
+        height: 190px;
+        position: relative;
+        overflow: hidden;
+        background: #eee;
+        touch-action: none;
+      }
+      .box {
+        position: absolute;
+        padding: 20px;
+        background: #d5e3ed;
+        touch-action: none;
+        user-select: none;
+      }
+      #pointer-box {
+        left: 15px;
+        top: 20px;
+      }
+      #mouse-box {
+        left: 300px;
+        top: 20px;
+        background: #eddcc7;
+      }
+      #scroll-zone {
+        height: 130px;
+        overflow: auto;
+        touch-action: pan-x pan-y pinch-zoom;
+        border: 1px solid #777;
+      }
+      #scroll-content {
+        height: 450px;
+        width: 1500px;
+        background: repeating-linear-gradient(
+          0deg,
+          #eee 0 40px,
+          #ddd 40px 80px
+        );
+      }
+      label {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 12px;
+        margin: 5px 0;
+      }
+      textarea {
+        width: 95%;
+        height: 140px;
+      }
+      #hover {
+        padding: 12px;
+        background: #eee;
+      }
+      #hover.active {
+        background: #bce5bf;
+      }
+      pre {
+        white-space: pre-wrap;
+      }
+      #strategy {
+        font: 13px monospace;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Folio input lab</h1>
+    <p>
+      Bundled offline page. Verdicts are manual, not inferred from event
+      delivery. Start with strategy none. D opens diagnostics.
+    </p>
+    <p id="strategy"></p>
+    <section>
+      <h2>Draw and drag</h2>
+      <canvas
+        id="draw"
+        width="1000"
+        height="240"
+        aria-label="Drawing canvas"
+      ></canvas>
+      <div id="arena">
+        <div id="pointer-box" class="box">Pointer capture box</div>
+        <div id="mouse-box" class="box">Mouse only box</div>
+      </div>
+      <p id="drag-status">No completed drag</p>
+      <div id="hover">Hover here without touching</div>
+    </section>
+    <section>
+      <h2>Page pan, scroll and pinch</h2>
+      <p>
+        Pan this region with one/two fingers, wheel or trackpad. Pinch here and
+        on the page. Check actual movement and zoom.
+      </p>
+      <div id="scroll-zone">
+        <div id="scroll-content">
+          Scrollable region with horizontal and vertical overflow
+        </div>
+      </div>
+      <p id="scroll-status">Scroll 0, 0</p>
+    </section>
+    <section>
+      <h2>Keyboard and text</h2>
+      <p>
+        Focus the page outside this field for shortcuts. Try
+        Cmd+C/V/Z/Shift+Z/D, Delete, arrows, modifiers and Space-drag. Then edit
+        sample text here. Only fixed shortcut names are logged; text is never
+        exported.
+      </p>
+      <input
+        id="text-field"
+        aria-label="Test text field"
+        placeholder="Type sample text only"
+      /><button id="focus-page">Focus page for shortcuts</button>
+      <p id="key-status">No key received</p>
+      <p id="text-status">No text input observed</p>
+    </section>
+    <section>
+      <h2>Live events, latest 100</h2>
+      <pre id="events"></pre>
+      <button id="clear-events">Clear events and drawing</button>
+    </section>
+    <section>
+      <h2>Results</h2>
+      <p>
+        Set PASS only when the intended behavior worked. FAIL for broken
+        behavior, NOT TESTED for unavailable hardware. Changing strategy resets
+        verdicts. Copy each run before switching.
+      </p>
+      <div id="results"></div>
+      <button id="copy-summary">Copy summary</button
+      ><button id="reset-results">Reset verdicts</button
+      ><textarea
+        id="summary"
+        readonly
+        aria-label="Copyable test summary"
+      ></textarea>
+      <p id="copy-status"></p>
+    </section>
+  </body>
+</html>

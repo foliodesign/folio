@@ -1,0 +1,35 @@
+<!doctype html>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'">
+<title>Folio auth popup lab</title>
+<style>body{font:24px system-ui;padding:30px}button,a{display:block;font:inherit;margin:25px 0;padding:15px}p{white-space:pre-wrap}</style>
+<h1>Folio auth popup lab</h1>
+<p>Offline fixture. No account or network requests.</p>
+<button onclick="child=window.open('about:blank'); if(child) child.location='auth-child.html'; else status.textContent='Popup rejected'">Open blank popup</button>
+<a href="auth-child.html" target="_blank" rel="opener">Open linked popup</a>
+<a href="https://accounts.google.com/o/oauth2/auth" target="_blank" rel="opener">Open blocked Google popup</a>
+<details><summary>Account menu</summary>
+<button id="add-account" onclick="child=window.open('auth-child.html'); if(!child) status.textContent='FAIL: account popup rejected'">Add account</button>
+</details>
+<p id="result">Waiting for opener message</p>
+<script>
+let child;
+const status=document.getElementById('result');
+if(performance.getEntriesByType('navigation')[0]?.type==='reload') {
+ status.textContent='PASS: account child closed and opener reloaded';
+}
+window.addEventListener('message',event=>{
+ if(event.data==='folio-account-complete' && event.source===child) {
+  status.textContent='Account completion received; waiting for child close';
+  const poll=setInterval(()=>{
+   if(!child.closed) return;
+   clearInterval(poll);
+   location.reload();
+  },50);
+ }
+ if(event.data==='folio-auth-fixture' && event.source){
+  status.textContent='PASS: window.opener postMessage received';
+  event.source.postMessage('folio-auth-ack','*');
+ }
+});
+</script>

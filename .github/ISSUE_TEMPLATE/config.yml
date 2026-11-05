@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Help using Folio
+    url: https://foliodesign.app/support
+    about: User guides, troubleshooting and support email.
+  - name: Report a security vulnerability
+    url: https://github.com/foliodesign/folio/security/advisories/new
+    about: Report privately. Never post vulnerabilities in a public issue.

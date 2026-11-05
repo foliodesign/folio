@@ -1,0 +1,169 @@
+name: Folio
+options:
+  deploymentTarget:
+    iOS: '26.0'
+settings:
+  base:
+    SWIFT_VERSION: '6.0'
+    # Daily Debug builds stay universal. release-archive.sh explicitly selects
+    # iPad-only App Store or universal TestFlight distribution.
+    # Phone code is idiom-gated (Folio/App/PhoneExperiencePolicy.swift) and inert on iPad.
+    TARGETED_DEVICE_FAMILY: '1,2'
+    CODE_SIGN_STYLE: Automatic
+    SWIFT_STRICT_CONCURRENCY: complete
+    GENERATE_INFOPLIST_FILE: YES
+    MARKETING_VERSION: '1.0.0'
+    CURRENT_PROJECT_VERSION: '1'
+targets:
+  Folio:
+    type: application
+    platform: iOS
+    sources:
+      - path: Shared
+      - path: Folio
+        excludes: [Resources, PrivacyInfo.xcprivacy]
+      - path: Folio/PrivacyInfo.xcprivacy
+        buildPhase: resources
+      - path: Folio/Resources/Compat
+        type: folder
+        buildPhase: resources
+      - path: Folio/Resources/AuthLab
+        type: folder
+        buildPhase: resources
+      - path: Folio/Resources/NativeLab
+        type: folder
+        buildPhase: resources
+      - path: Folio/Resources/Assets.xcassets
+        buildPhase: resources
+    dependencies:
+      - target: FolioShare
+        embed: true
+    entitlements:
+      path: Folio/Folio.entitlements
+      properties:
+        com.apple.security.application-groups: [group.app.foliodesign.folio]
+    preBuildScripts:
+      - name: Reject private API experiments in release builds
+        basedOnDependencyAnalysis: false
+        script: |
+          if [ "$CONFIGURATION" = "Release" ]; then
+            if /usr/bin/grep -R -l -E --include='*.swift' --include='*.js' 'PRIVATE_API' "$SRCROOT/Folio"; then
+              echo 'error: PRIVATE_API experiment found in release sources'
+              exit 1
+            else
+              status=$?
+              if [ "$status" -ne 1 ]; then
+                echo 'error: Could not scan release sources for PRIVATE_API tags'
+                exit "$status"
+              fi
+            fi
+          fi
+    postBuildScripts:
+      - name: Allow loopback HTTP only in Debug
+        basedOnDependencyAnalysis: false
+        script: |
+          if [ "$CONFIGURATION" = "Debug" ]; then
+            plist="$TARGET_BUILD_DIR/$INFOPLIST_PATH"
+            /usr/libexec/PlistBuddy -c "Delete :NSAppTransportSecurity" "$plist" 2>/dev/null || true
+            /usr/libexec/PlistBuddy -c "Add :NSAppTransportSecurity dict" "$plist"
+            /usr/libexec/PlistBuddy -c "Add :NSAppTransportSecurity:NSAllowsLocalNetworking bool true" "$plist"
+          fi
+      - name: Remove disabled labs from release resources
+        basedOnDependencyAnalysis: false
+        script: |
+          if [ "$CONFIGURATION" = "Release" ]; then
+            rm -f "$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/Compat/memory-lab.js" \
+              "$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/Compat/memory-lab.html" \
+              "$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/Compat/dom-probe.js"
+            rm -rf "$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/AuthLab" \
+              "$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/NativeLab"
+          fi
+    info:
+      path: Folio/Info.plist
+      properties:
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        ITSAppUsesNonExemptEncryption: false
+        CFBundleURLTypes:
+          - CFBundleURLName: app.foliodesign.folio.open
+            CFBundleURLSchemes: [folio]
+        NSPhotoLibraryAddUsageDescription: Save downloaded PNG and JPEG exports to Photos when you choose Save to Photos.
+        NSCameraUsageDescription: Take a photo to import into the current web page.
+        NSMicrophoneUsageDescription: Use the microphone when you choose to record audio on the current web page.
+        UIApplicationSupportsIndirectInputEvents: true
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: true
+          UISceneConfigurations:
+            UIWindowSceneSessionRoleApplication:
+              - UISceneConfigurationName: Browser
+                UISceneDelegateClassName: $(PRODUCT_MODULE_NAME).FolioSceneDelegate
+        NSUserActivityTypes: [app.foliodesign.folio.tab, app.foliodesign.folio.window]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.foliodesign.folio
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight
+        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone: UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight
+  FolioShare:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: FolioShare
+        excludes: [PrivacyInfo.xcprivacy]
+      - path: FolioShare/PrivacyInfo.xcprivacy
+        buildPhase: resources
+      - path: Shared
+      - path: Folio/Diagnostics/Privacy.swift
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.foliodesign.folio.share
+        APPLICATION_EXTENSION_API_ONLY: YES
+    entitlements:
+      path: FolioShare/FolioShare.entitlements
+      properties:
+        com.apple.security.application-groups: [group.app.foliodesign.folio]
+    info:
+      path: FolioShare/Info.plist
+      properties:
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        ITSAppUsesNonExemptEncryption: false
+        CFBundleDisplayName: Save link for Folio
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.share-services
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).ShareViewController
+          NSExtensionAttributes:
+            NSExtensionActivationRule:
+              NSExtensionActivationSupportsWebURLWithMaxCount: 1
+  FolioTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: FolioTests
+    dependencies:
+      - target: Folio
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.foliodesign.folio.tests
+  FolioUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: FolioUITests
+    dependencies:
+      - target: Folio
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.foliodesign.folio.uitests
+schemes:
+  Folio:
+    build:
+      targets:
+        Folio: all
+        FolioTests: [test]
+        FolioUITests: [test]
+    test:
+      targets:
+        - FolioTests
+        - FolioUITests

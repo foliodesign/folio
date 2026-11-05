@@ -1,0 +1,24 @@
+{
+  "info": {
+    "jsonVersion": 5,
+    "version": "651.13.5",
+    "outcome": "success"
+  },
+  "result": {
+    "identifier": "CORE-A",
+    "hardwareProperties": {
+      "reality": "physical",
+      "deviceType": "iPad",
+      "udid": "UDID-A"
+    },
+    "connectionProperties": {
+      "pairingState": "paired",
+      "tunnelState": "disconnected"
+    },
+    "deviceProperties": {
+      "name": "Test iPad",
+      "developerModeStatus": "enabled",
+      "osVersionNumber": "26.0"
+    }
+  }
+}

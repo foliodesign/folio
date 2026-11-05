@@ -1,0 +1,75 @@
+name: Bug report
+description: Report a reproducible Folio problem.
+title: "[Bug]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use a disposable design you own. Remove private file URLs, designs, account details, device IDs, cookies and tokens from all text and screenshots.
+        Suspected vulnerability? Use SECURITY.md and the verified private reporting route.
+  - type: input
+    id: device
+    attributes:
+      label: iPad model
+      placeholder: iPad Pro 11-inch M4
+    validations:
+      required: true
+  - type: input
+    id: ipados
+    attributes:
+      label: iPadOS version
+      description: Include the exact version; say whether it is a beta.
+    validations:
+      required: true
+  - type: input
+    id: folio
+    attributes:
+      label: Folio version, build or commit
+      description: Include distribution method, such as source build or TestFlight.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: Number the steps. Use generic file names; do not include a private design link.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected result
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual result and frequency
+    validations:
+      required: true
+  - type: textarea
+    id: input
+    attributes:
+      label: Input, mode and switches
+      description: Pencil, finger, trackpad or keyboard; Folio mode, relevant switches and interface zoom.
+    validations:
+      required: true
+  - type: textarea
+    id: baseline
+    attributes:
+      label: Safari or Safe mode comparison
+      description: Describe any comparison you already tried, or say not tested. Do not change account security settings to test.
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Reviewed Developer Tools report
+      description: Use Developer Tools > Overview > Copy/Share report. Inspect and redact it first. Attach the safe report or state why it is unavailable. Do not attach raw system logs.
+    validations:
+      required: true
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Privacy check
+      options:
+        - label: I reviewed all text and attachments and removed private content and identifiers.
+          required: true

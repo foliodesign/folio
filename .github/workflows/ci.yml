@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  compat:
+    name: Compat
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm lint
+      - run: pnpm test
+      - run: bash apps/ios/scripts/tests/b4-device-discovery-test.sh
+
+  swift-format:
+    name: Swift format
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    container: swift:6.2-noble
+    steps:
+      - uses: actions/checkout@v4
+      - run: swift format lint -r apps/ios
