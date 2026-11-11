@@ -188,7 +188,8 @@ final class SideRailView: UIView {
   }
 }
 
-/// Open files as a count badge, like the compact top bar; opens the tab list.
+/// Open files as a count badge, like the iPhone's compact top bar; opens the tab list. Used by the
+/// iPhone Duo top bar (`DuoTitleBar`).
 @MainActor
 final class SideRailCountButton: UIControl {
   private let badge = UILabel()
@@ -216,6 +217,8 @@ final class SideRailCountButton: UIControl {
       spinner.centerXAnchor.constraint(equalTo: centerXAnchor),
       spinner.centerYAnchor.constraint(equalTo: centerYAnchor),
     ])
+    layer.cornerRadius = DuoTitleBar.pressedRadius
+    layer.cornerCurve = .continuous
     isAccessibilityElement = true
     accessibilityTraits = .button
     accessibilityHint = "Shows open tabs"
@@ -235,10 +238,10 @@ final class SideRailCountButton: UIControl {
   }
 
   override var isHighlighted: Bool {
-    didSet { badge.alpha = isHighlighted ? 0.6 : 1 }
+    didSet { backgroundColor = isHighlighted ? ChromePalette.hover : .clear }
   }
 
   private func applyBorder() {
-    badge.layer.borderColor = ChromePalette.primaryText.resolvedColor(with: traitCollection).cgColor
+    badge.layer.borderColor = ChromePalette.icon.resolvedColor(with: traitCollection).cgColor
   }
 }

@@ -14,11 +14,13 @@ enum ShortcutEditAction {
   }
 }
 
-/// File-tab bottom bar: modifier keys, a flick arrow key and edit commands. On iPhone the
-/// Layers/Properties sheet toggles stay fixed on the left and the commands scroll beside them;
-/// Figma's tools live in the floating `PhoneToolPill` above the bar; modifiers and arrows move to
-/// a second row opened with the Keys button. In iPhone landscape the bar is one row: Layers fixed
-/// at the left, the commands scrolling, then Properties fixed at the right, each panel toggle on the side its panel opens. Keys go out as
+/// File-tab bottom bar: modifier keys, a flick arrow key and edit commands. In compact layouts
+/// (iPhone, narrow iPad windows; maintainer, 2026-11-11) nothing scrolls: Layers, Properties,
+/// Keys and Tools sit fixed at the left, Undo, Redo, Cut, Copy and Paste fixed at the right.
+/// Keys opens a second row with the modifiers and arrows, Tools one with Duplicate, Select all,
+/// Group, Ungroup and Frame selection; one at a time. Figma's tools live in the floating
+/// `PhoneToolPill` above the bar. In landscape Properties moves to the right end, the side its
+/// panel opens. Buttons narrow below 44 pt when the row would not fit. Keys go out as
 /// standard DOM keyboard events (touch-shortcuts.ts); clipboard and select all as native actions.
 /// Modifiers behave like real keys: down while a finger or pointer holds the button, and a short
 /// unused tap toggles them on until tapped again. Every active modifier is sent as "locked" (2)
@@ -38,8 +40,12 @@ final class BottomToolbarView: UIView {
   var interfaceScale: CGFloat = 1 { didSet { applyScale() } }
 
   private let left = UIStackView()
-  /// iPhone: Layers and Properties, fixed before the scrolling commands.
+  /// Compact: Layers, Properties, Keys and Tools, fixed at the left.
   private let fixed = UIStackView()
+  /// Compact: the Tools row (Duplicate, Select all, grouping), above the bar like the keys.
+  private let toolsRow = UIStackView()
+  /// Compact: holds the keys row and the Tools row; one shows at a time.
+  private let drawerStack = UIStackView()
   private let scroll = UIScrollView()
   private let keysScroll = UIScrollView()
   private let right = UIStackView()
@@ -57,20 +63,34 @@ final class BottomToolbarView: UIView {
   private var toggled: Set<Int> = []
   private var held: [Int: (wasOn: Bool, start: TimeInterval, used: Bool)] = [:]
   private let phone: Bool
+  /// iPad and the iPhone Duo (maintainer, 2026-11-11): the row sits lower, in half of the
+  /// home-indicator inset, and further in from the sides, clear of the display's large corners.
+  /// Plain iPhones keep the full inset: their corners leave no room to come lower.
+  private let roundCorners = !PhoneExperiencePolicy.isPhone || PhoneExperiencePolicy.isDuo
+  private var rowBottom: NSLayoutConstraint!
   private var phoneRowHeight: NSLayoutConstraint?
   private var keysTop: NSLayoutConstraint?
   private var scrollTop: NSLayoutConstraint?
   private var panels: [String: UIButton] = [:]
   private var keysButton: UIButton?
-  /// iPhone landscape: Properties, fixed at the right edge.
+  private var toolsButton: UIButton?
+  /// Compact: the command buttons by group (Undo/Redo, clipboard, Duplicate/Select all, grouping).
+  private var compactGroups: [[UIButton]] = []
+  private var buttonWidths: [ObjectIdentifier: NSLayoutConstraint] = [:]
+  /// Compact: the second row above the bar.
+  enum Drawer { case none, keys, tools }
+  private(set) var drawer = Drawer.none
+  /// Compact: Undo, Redo, Cut, Copy and Paste fixed at the right (and Properties in landscape);
+  /// iPhone Duo `keysInRow`: Layers and Properties.
   private let trailingFixed = UIStackView()
   private(set) var landscape = false
   /// Which commands the bar shows. The iPhone Duo's side column takes some: Undo, Redo, Cut,
   /// Copy and Paste unfolded full screen (`withoutHistoryAndClipboard`), every command and Keys
   /// in compact layouts (`none`, with `keysInRow`). Modifiers and arrows always stay.
   enum Commands { case all, withoutHistoryAndClipboard, none }
-  /// Command buttons, dividers and Keys by group (0 Undo/Redo, 1 clipboard, 2 Duplicate/Select
-  /// all, 3 grouping, 4 Keys); a divider belongs to the group it precedes.
+  /// iPad row: command buttons and dividers by group (0 Undo/Redo, 1 clipboard, 2 Duplicate/Select
+  /// all, 3 grouping); a divider belongs to the group it precedes. Compact layouts place their
+  /// commands in `placeRow` instead.
   private var commandViews: [(group: Int, divider: Bool, view: UIView)] = []
   var commands = Commands.all {
     didSet {
@@ -85,10 +105,17 @@ final class BottomToolbarView: UIView {
       }
     }
   }
-  /// Compact layouts: whether the modifier and arrow row is open (Keys).
+  /// Compact layouts: whether the modifier and arrow row is open (Keys). Clearing it leaves an
+  /// open Tools row alone.
   var keysExpanded: Bool {
-    get { phone && !left.isHidden }
-    set { setKeysExpanded(newValue) }
+    get { drawer == .keys }
+    set {
+      if newValue {
+        setDrawer(.keys)
+      } else if drawer == .keys {
+        setDrawer(.none)
+      }
+    }
   }
   /// iPhone Duo compact layouts (maintainer, 2026-11-11): one row with the modifiers and arrows
   /// always shown at the left and Layers and Properties at the right, by the side column. Pair
@@ -96,11 +123,11 @@ final class BottomToolbarView: UIView {
   var keysInRow = false {
     didSet {
       guard phone, keysInRow != oldValue else { return }
-      setKeysExpanded(false)
+      applyDrawer(.none)
       left.isHidden = !keysInRow
       keysScroll.isHidden = !keysInRow
       if !keysInRow { releaseModifiers() }
-      placePanels()
+      placeRow()
       superview?.setNeedsLayout()
     }
   }
@@ -115,7 +142,7 @@ final class BottomToolbarView: UIView {
     backgroundColor = ChromePalette.bar
     accessibilityIdentifier = "bottom-toolbar"
     hairline.backgroundColor = ChromePalette.divider
-    for stack in [left, right, fixed, trailingFixed, track] {
+    for stack in [left, right, fixed, trailingFixed, track, toolsRow, drawerStack] {
       stack.axis = .horizontal
       stack.alignment = .fill
       stack.translatesAutoresizingMaskIntoConstraints = false
@@ -162,7 +189,7 @@ final class BottomToolbarView: UIView {
       ("arrow.uturn.backward", "Undo", "⌘Z", { key("undo") }),
       ("arrow.uturn.forward", "Redo", "⇧⌘Z", { key("redo") }),
     ]
-    if phone { addPanelToggles() }
+    if phone { makeToggles() }
     let groups: [[(String, String, String, () -> Void)]] = [
       undo,
       [
@@ -181,11 +208,12 @@ final class BottomToolbarView: UIView {
       ],
     ]
     for (index, group) in groups.enumerated() {
-      if index > 0 {
+      if index > 0 && !phone {
         let line = divider()
         right.addArrangedSubview(line)
         commandViews.append((index, true, line))
       }
+      var made: [UIButton] = []
       for (icon, label, shortcut, action) in group {
         let button = self.button(icon, label, "\(label) \(shortcut)")
         button.addAction(
@@ -193,13 +221,20 @@ final class BottomToolbarView: UIView {
             self?.markUsed()
             action()
           }, for: .touchUpInside)
-        right.addArrangedSubview(button)
-        commandViews.append((index, false, button))
+        made.append(button)
+        // Compact layouts place them in `placeRow` and the Tools row instead.
+        if !phone {
+          right.addArrangedSubview(button)
+          commandViews.append((index, false, button))
+        }
       }
+      compactGroups.append(made)
     }
-    if phone { addKeysToggle() }
 
     rowHeight = left.heightAnchor.constraint(equalToConstant: Self.height)
+    let edge = Self.edgeInset(roundCorners)
+    rowBottom = scroll.bottomAnchor.constraint(
+      equalTo: bottomAnchor, constant: -Self.bottomInset(0, roundCorners))
     hairlineHeight = hairline.heightAnchor.constraint(equalToConstant: 1)
     let fill = row.widthAnchor.constraint(equalTo: scroll.frameLayoutGuide.widthAnchor)
     fill.priority = .defaultHigh
@@ -217,12 +252,21 @@ final class BottomToolbarView: UIView {
       fill,
     ])
     if phone {
-      // Keys row (modifiers and arrows) sits above the strip and starts collapsed.
+      // Keys row (modifiers and arrows) and Tools row sit above the bar and start collapsed.
       right.addArrangedSubview(spacer)
       let spacerKeys = UIView()
       spacerKeys.setContentHuggingPriority(.init(1), for: .horizontal)
       left.addArrangedSubview(spacerKeys)
       left.isHidden = true
+      for button in compactGroups[2] { toolsRow.addArrangedSubview(button) }
+      toolsRow.addArrangedSubview(divider())
+      for button in compactGroups[3] { toolsRow.addArrangedSubview(button) }
+      let spacerTools = UIView()
+      spacerTools.setContentHuggingPriority(.init(1), for: .horizontal)
+      toolsRow.addArrangedSubview(spacerTools)
+      toolsRow.isHidden = true
+      drawerStack.addArrangedSubview(left)
+      drawerStack.addArrangedSubview(toolsRow)
       let height = scroll.heightAnchor.constraint(equalToConstant: Self.height)
       phoneRowHeight = height
       keysScroll.translatesAutoresizingMaskIntoConstraints = false
@@ -232,51 +276,54 @@ final class BottomToolbarView: UIView {
       addSubview(keysScroll)
       addSubview(fixed)
       addSubview(trailingFixed)
-      trailingFixed.isHidden = true
-      trailingFixed.addArrangedSubview(divider())
-      keysScroll.addSubview(left)
-      let keysFill = left.widthAnchor.constraint(equalTo: keysScroll.frameLayoutGuide.widthAnchor)
+      keysScroll.addSubview(drawerStack)
+      let keysFill = drawerStack.widthAnchor.constraint(
+        equalTo: keysScroll.frameLayoutGuide.widthAnchor)
       keysFill.priority = .defaultHigh
       keysTop = keysScroll.topAnchor.constraint(equalTo: topAnchor)
       scrollTop = scroll.topAnchor.constraint(equalTo: topAnchor)
       keysAbove = keysScroll.bottomAnchor.constraint(equalTo: scroll.topAnchor)
       keysTrailing = keysScroll.trailingAnchor.constraint(
-        equalTo: safeAreaLayoutGuide.trailingAnchor, constant: -4)
+        equalTo: safeAreaLayoutGuide.trailingAnchor, constant: -edge)
       NSLayoutConstraint.activate([
         scrollTop!, height, rowHeight, keysFill, keysAbove!, keysTrailing!,
         keysScroll.leadingAnchor.constraint(
-          equalTo: safeAreaLayoutGuide.leadingAnchor, constant: 4),
-        keysScroll.heightAnchor.constraint(equalTo: left.heightAnchor),
-        left.topAnchor.constraint(equalTo: keysScroll.contentLayoutGuide.topAnchor),
-        left.bottomAnchor.constraint(equalTo: keysScroll.contentLayoutGuide.bottomAnchor),
-        left.leadingAnchor.constraint(equalTo: keysScroll.contentLayoutGuide.leadingAnchor),
-        left.trailingAnchor.constraint(equalTo: keysScroll.contentLayoutGuide.trailingAnchor),
-        left.widthAnchor.constraint(greaterThanOrEqualTo: keysScroll.frameLayoutGuide.widthAnchor),
-        fixed.leadingAnchor.constraint(equalTo: safeAreaLayoutGuide.leadingAnchor, constant: 4),
+          equalTo: safeAreaLayoutGuide.leadingAnchor, constant: edge),
+        keysScroll.heightAnchor.constraint(equalTo: scroll.heightAnchor),
+        drawerStack.topAnchor.constraint(equalTo: keysScroll.contentLayoutGuide.topAnchor),
+        drawerStack.bottomAnchor.constraint(equalTo: keysScroll.contentLayoutGuide.bottomAnchor),
+        drawerStack.leadingAnchor.constraint(equalTo: keysScroll.contentLayoutGuide.leadingAnchor),
+        drawerStack.trailingAnchor.constraint(
+          equalTo: keysScroll.contentLayoutGuide.trailingAnchor),
+        drawerStack.heightAnchor.constraint(equalTo: keysScroll.frameLayoutGuide.heightAnchor),
+        drawerStack.widthAnchor.constraint(
+          greaterThanOrEqualTo: keysScroll.frameLayoutGuide.widthAnchor),
+        fixed.leadingAnchor.constraint(equalTo: safeAreaLayoutGuide.leadingAnchor, constant: edge),
         fixed.topAnchor.constraint(equalTo: scroll.topAnchor),
         fixed.bottomAnchor.constraint(equalTo: scroll.bottomAnchor),
         trailingFixed.trailingAnchor.constraint(
-          equalTo: safeAreaLayoutGuide.trailingAnchor, constant: -4),
+          equalTo: safeAreaLayoutGuide.trailingAnchor, constant: -edge),
         trailingFixed.topAnchor.constraint(equalTo: scroll.topAnchor),
         trailingFixed.bottomAnchor.constraint(equalTo: scroll.bottomAnchor),
-        scroll.bottomAnchor.constraint(equalTo: safeAreaLayoutGuide.bottomAnchor),
+        rowBottom,
       ])
-      layoutRow()
+      placeRow()
       applyScale()
       return
     }
     NSLayoutConstraint.activate([
       rowHeight,
       scroll.topAnchor.constraint(equalTo: topAnchor),
-      scroll.bottomAnchor.constraint(equalTo: safeAreaLayoutGuide.bottomAnchor),
-      scroll.leadingAnchor.constraint(equalTo: safeAreaLayoutGuide.leadingAnchor, constant: 4),
-      scroll.trailingAnchor.constraint(equalTo: safeAreaLayoutGuide.trailingAnchor, constant: -4),
+      rowBottom,
+      scroll.leadingAnchor.constraint(equalTo: safeAreaLayoutGuide.leadingAnchor, constant: edge),
+      scroll.trailingAnchor.constraint(
+        equalTo: safeAreaLayoutGuide.trailingAnchor, constant: -edge),
     ])
     applyScale()
   }
 
-  /// iPhone: sidebar sheet toggles, fixed at the left edge; they show the open sheet.
-  private func addPanelToggles() {
+  /// Compact: the Layers and Properties sheet toggles (they show the open sheet), Keys and Tools.
+  private func makeToggles() {
     for (side, icon, label) in [
       ("left", "square.3.layers.3d", "Layers"), ("right", "slider.horizontal.3", "Properties"),
     ] {
@@ -285,38 +332,61 @@ final class BottomToolbarView: UIView {
       button.addAction(
         UIAction { [weak self] _ in self?.onPanel?(side) }, for: .touchUpInside)
       panels[side] = button
-      fixed.addArrangedSubview(button)
     }
-    // Separates the toggles from the commands, so it goes with them.
-    let line = divider()
-    fixed.addArrangedSubview(line)
-    commandViews.append((0, true, line))
+    let keys = self.button("keyboard", "Keys", "Modifier and arrow keys")
+    keys.accessibilityHint = "Shows Shift, Control, Option, Command and the arrow keys."
+    keys.addAction(
+      UIAction { [weak self] _ in
+        guard let self else { return }
+        self.setDrawer(self.drawer == .keys ? .none : .keys)
+      }, for: .touchUpInside)
+    let tools = self.button("square.grid.2x2", "Tools", "Duplicate, select all and grouping")
+    tools.accessibilityHint = "Shows Duplicate, Select all, Group, Ungroup and Frame selection."
+    tools.addAction(
+      UIAction { [weak self] _ in
+        guard let self else { return }
+        self.setDrawer(self.drawer == .tools ? .none : .tools)
+      }, for: .touchUpInside)
+    for button in [keys, tools] { latchedLook(button) }
+    keysButton = keys
+    toolsButton = tools
   }
 
-  /// iPhone: one-row landscape layout, or the portrait strip (panel toggles both at the left).
+  /// iPhone: one-row landscape layout, or the portrait bar (panel toggles both at the left).
   func setLandscape(_ value: Bool) {
     guard phone, value != landscape else { return }
     landscape = value
-    placePanels()
+    placeRow()
   }
 
-  /// Layers and Properties: both at the right beside the keys (`keysInRow`), each on the side
-  /// its panel opens (landscape), or both at the left before the commands.
-  private func placePanels() {
-    guard let layers = panels["left"], let properties = panels["right"] else { return }
-    for button in [layers, properties] { button.removeFromSuperview() }
-    if keysInRow {
-      trailingFixed.addArrangedSubview(layers)
-      trailingFixed.addArrangedSubview(properties)
-    } else {
-      fixed.insertArrangedSubview(layers, at: 0)
-      if landscape {
-        trailingFixed.addArrangedSubview(properties)
-      } else {
-        fixed.insertArrangedSubview(properties, at: 1)
+  /// Fills the fixed ends. Compact: Layers, Properties, Keys and Tools at the left, Undo, Redo
+  /// and the clipboard at the right, Properties moving to the right end in landscape (the side
+  /// its panel opens). iPhone Duo `keysInRow`: Layers and Properties at the right of the keys;
+  /// the commands live in the side column.
+  private func placeRow() {
+    guard let layers = panels["left"], let properties = panels["right"], let keys = keysButton,
+      let tools = toolsButton
+    else { return }
+    for stack in [fixed, trailingFixed] {
+      for view in stack.arrangedSubviews {
+        stack.removeArrangedSubview(view)
+        view.removeFromSuperview()
       }
     }
-    trailingFixed.isHidden = !(keysInRow || landscape)
+    let leading: [UIView]
+    var trailing: [UIView]
+    if keysInRow {
+      leading = []
+      trailing = [divider(), layers, properties]
+    } else {
+      leading = (landscape ? [layers] : [layers, properties]) + [divider(), keys, tools]
+      // A divider leads the right end, so Tools and Undo read as two groups even when the ends
+      // meet (maintainer, 2026-11-11).
+      trailing = [divider()] + compactGroups[0] + [divider()] + compactGroups[1]
+      if landscape { trailing += [divider(), properties] }
+    }
+    for view in leading { fixed.addArrangedSubview(view) }
+    for view in trailing { trailingFixed.addArrangedSubview(view) }
     fixed.isHidden = keysInRow
     scroll.isHidden = keysInRow
     layoutRow()
@@ -324,7 +394,10 @@ final class BottomToolbarView: UIView {
 
   private func layoutRow() {
     NSLayoutConstraint.deactivate(rowConstraints)
-    var row: [NSLayoutConstraint] = []
+    var row: [NSLayoutConstraint] = [
+      scroll.leadingAnchor.constraint(equalTo: fixed.trailingAnchor),
+      scroll.trailingAnchor.constraint(equalTo: trailingFixed.leadingAnchor),
+    ]
     keysAbove?.isActive = !keysInRow
     keysTrailing?.isActive = !keysInRow
     if keysInRow {
@@ -333,49 +406,60 @@ final class BottomToolbarView: UIView {
         keysScroll.trailingAnchor.constraint(equalTo: trailingFixed.leadingAnchor),
       ]
     }
-    if landscape {
-      row += [
-        scroll.leadingAnchor.constraint(equalTo: fixed.trailingAnchor),
-        scroll.trailingAnchor.constraint(equalTo: trailingFixed.leadingAnchor),
-      ]
-    } else {
-      row += [
-        scroll.leadingAnchor.constraint(equalTo: fixed.trailingAnchor),
-        scroll.trailingAnchor.constraint(
-          equalTo: safeAreaLayoutGuide.trailingAnchor, constant: -4),
-      ]
-    }
     rowConstraints = row
     NSLayoutConstraint.activate(row)
     setNeedsLayout()
   }
 
-  private func addKeysToggle() {
-    let line = divider()
-    right.addArrangedSubview(line)
-    let button = self.button("keyboard", "Keys", "Modifier and arrow keys")
-    latchedLook(button)
-    button.accessibilityHint = "Shows Shift, Control, Option, Command and the arrow keys."
-    button.addAction(
-      UIAction { [weak self] _ in
-        guard let self else { return }
-        self.setKeysExpanded(self.left.isHidden)
-      },
-      for: .touchUpInside)
-    keysButton = button
-    right.addArrangedSubview(button)
-    commandViews += [(4, true, line), (4, false, button)]
+  /// Compact: narrows the fixed buttons below 44 pt when both ends would not fit side by side
+  /// (iPhone portrait, Slide Over); the divider leading the right end keeps them apart.
+  private func fitRow() {
+    guard phone else { return }
+    let pixels = max(1, traitCollection.displayScale)
+    let full = ((max(44, 44 * max(1, interfaceScale))) * pixels).rounded() / pixels
+    let views = fixed.arrangedSubviews + trailingFixed.arrangedSubviews
+    let buttons = views.compactMap { $0 as? UIButton }
+    let dividers = CGFloat(views.count - buttons.count) * 13
+    let room = bounds.width - safeAreaInsets.left - safeAreaInsets.right - 8 - dividers
+    guard room > 0, !buttons.isEmpty else { return }
+    let fitted = (room / CGFloat(buttons.count) * pixels).rounded(.down) / pixels
+    // The Duo's row scrolls its keys instead; its two panel toggles keep their size.
+    let width = keysInRow ? full : max(30, min(full, fitted))
+    for button in buttons {
+      if let constraint = buttonWidths[ObjectIdentifier(button)], constraint.constant != width {
+        constraint.constant = width
+      }
+    }
   }
 
-  private func setKeysExpanded(_ expanded: Bool) {
-    guard phone, !keysInRow, left.isHidden == expanded else { return }
-    // Collapsing releases every held or latched modifier.
-    if !expanded { releaseModifiers() }
-    keysButton?.isSelected = expanded
-    left.isHidden = !expanded
-    keysScroll.isHidden = !expanded
-    scrollTop?.isActive = !expanded
-    keysTop?.isActive = expanded
+  override func layoutSubviews() {
+    fitRow()
+    super.layoutSubviews()
+  }
+
+  /// Compact: opens the Keys or Tools row, or closes it. Closing the keys releases every held or
+  /// latched modifier.
+  private func setDrawer(_ next: Drawer) {
+    guard phone, !keysInRow, next != drawer else { return }
+    applyDrawer(next)
+  }
+
+  private func applyDrawer(_ next: Drawer) {
+    guard next != drawer else { return }
+    if drawer == .keys { releaseModifiers() }
+    drawer = next
+    keysButton?.isSelected = next == .keys
+    toolsButton?.isSelected = next == .tools
+    left.isHidden = next != .keys
+    toolsRow.isHidden = next != .tools
+    keysScroll.isHidden = next == .none
+    if next == .none {
+      keysTop?.isActive = false
+      scrollTop?.isActive = true
+    } else {
+      scrollTop?.isActive = false
+      keysTop?.isActive = true
+    }
     superview?.setNeedsLayout()
     UIView.performWithoutAnimation { superview?.layoutIfNeeded() }
   }
@@ -408,6 +492,25 @@ final class BottomToolbarView: UIView {
 
   required init?(coder: NSCoder) { fatalError("Use programmatic bottom toolbar") }
 
+  /// Space from the bar's side edges (past the safe area) to its first and last controls.
+  static func edgeInset(_ roundCorners: Bool) -> CGFloat { roundCorners ? 12 : 4 }
+
+  /// Space below the row: the whole bottom safe area (home indicator) on plain iPhones, half of
+  /// it, rounded, on iPad and the Duo.
+  static func bottomInset(_ safeBottom: CGFloat, _ roundCorners: Bool) -> CGFloat {
+    roundCorners ? (safeBottom / 2).rounded() : safeBottom
+  }
+
+  /// Centre of the bottom row, from the bar's top, from constraints (valid before the bar's own
+  /// layout pass): the iPhone Duo's side column lines its bottom control up with it.
+  var rowCentre: CGFloat { bounds.height + rowBottom.constant - rowHeight.constant / 2 }
+
+  override func safeAreaInsetsDidChange() {
+    super.safeAreaInsetsDidChange()
+    let inset = Self.bottomInset(safeAreaInsets.bottom, roundCorners)
+    if rowBottom.constant != -inset { rowBottom.constant = -inset }
+  }
+
   private func button(_ icon: String, _ label: String, _ tip: String) -> UIButton {
     let button = ChromeTabView.segmentButton(icon, label: label)
     button.largeContentTitle = label
@@ -417,6 +520,7 @@ final class BottomToolbarView: UIView {
     let width = button.widthAnchor.constraint(equalToConstant: 44)
     width.isActive = true
     widths.append(width)
+    buttonWidths[ObjectIdentifier(button)] = width
     buttons.append((button, icon))
     return button
   }
@@ -431,6 +535,9 @@ final class BottomToolbarView: UIView {
     ])
     let wrapper = UIStackView(arrangedSubviews: [line])
     wrapper.isLayoutMarginsRelativeArrangement = true
+    // The row reaches into the home-indicator inset on iPad and the Duo; safe-area margins
+    // would lift the line off the row's centre (maintainer, 2026-11-11).
+    wrapper.insetsLayoutMarginsFromSafeArea = false
     wrapper.directionalLayoutMargins = .init(top: 0, leading: 6, bottom: 0, trailing: 6)
     wrapper.alignment = .center
     return wrapper
@@ -537,6 +644,7 @@ final class BottomToolbarView: UIView {
     phoneRowHeight?.constant = rowHeight.constant
     hairlineHeight.constant = snap(max(1 / pixels, scale))
     for width in widths { width.constant = snap(max(44, 44 * scale)) }
+    setNeedsLayout()
     let pointSize = Self.iconPointSize * scale
     for (button, icon) in buttons {
       button.configuration?.image = ToolbarIcon.image(icon, pointSize: pointSize)

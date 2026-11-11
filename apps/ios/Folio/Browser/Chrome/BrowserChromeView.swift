@@ -89,6 +89,19 @@ final class BrowserChromeView: UIView, UIDragInteractionDelegate, UIDropInteract
   private var tabWidths: [UUID: NSLayoutConstraint] = [:]
   private var homeWidth: NSLayoutConstraint!
   private var moreTrailing: NSLayoutConstraint!
+  private var homeLeading: NSLayoutConstraint!
+  /// Phones: where the page starts, in this view's coordinates (set by the owner), so Home lines
+  /// up with the page exactly rather than with a safe-area guide.
+  var pageLeading: CGFloat = 0 { didSet { if pageLeading != oldValue { setNeedsLayout() } } }
+  /// iPhone Duo inner display, strip in the status row (maintainer, 2026-11-11): Home starts past
+  /// Figma's 48 pt navigation rail, where the first file tab used to start, so the display's
+  /// large corner above the rail stays empty.
+  var clearsPageRail = false {
+    didSet { if clearsPageRail != oldValue { setNeedsLayout() } }
+  }
+  private var cornerGuide: UILayoutGuide!
+  /// Gap between iPad's window controls and Home (maintainer, 2026-11-11: it sat too close).
+  private static let windowControlsGap: CGFloat = 6
   /// Space kept free at the trailing end for the system status items when the strip shares the
   /// iPhone Duo's status row (set by the owner; 0 elsewhere).
   var statusRowReserve: CGFloat = 0 {
@@ -170,11 +183,16 @@ final class BrowserChromeView: UIView, UIDragInteractionDelegate, UIDropInteract
     stackWidth = stack.widthAnchor.constraint(equalToConstant: 0)
     homeWidth = homeTab.widthAnchor.constraint(equalToConstant: Self.homeRailWidth)
     borderHeight = hairline.heightAnchor.constraint(equalToConstant: 1)
+    // Phones: Home starts at `pageLeading` (plus Figma's rail in the Duo's status row), set in
+    // layout. iPad: past the window controls when they share the bar, with a gap set in layout.
+    homeLeading = homeTab.leadingAnchor.constraint(
+      equalTo: PhoneExperiencePolicy.isPhone ? leadingAnchor : guide.leadingAnchor)
+    cornerGuide = guide
     moreTrailing = more.trailingAnchor.constraint(equalTo: guide.trailingAnchor, constant: -4)
     let fitTabs = scroll.widthAnchor.constraint(equalTo: stack.widthAnchor)
     fitTabs.priority = .defaultHigh
     NSLayoutConstraint.activate([
-      homeTab.leadingAnchor.constraint(equalTo: guide.leadingAnchor),
+      homeLeading!,
       homeTab.topAnchor.constraint(equalTo: topAnchor),
       homeTab.bottomAnchor.constraint(equalTo: bottomAnchor),
       homeWidth!,
@@ -293,6 +311,16 @@ final class BrowserChromeView: UIView, UIDragInteractionDelegate, UIDropInteract
   }
 
   override func layoutSubviews() {
+    let leading: CGFloat
+    if PhoneExperiencePolicy.isPhone {
+      let zoom = CGFloat(interfaceZoom?.scale ?? 1)
+      leading = pageLeading + (clearsPageRail ? snapped(Self.homeRailWidth * zoom) : 0)
+    } else {
+      // The corner-adapted guide is indented only where the window controls sit in the bar.
+      let controls = cornerGuide.layoutFrame.minX > safeAreaInsets.left + 1
+      leading = controls ? Self.windowControlsGap : 0
+    }
+    if homeLeading.constant != leading { homeLeading.constant = leading }
     super.layoutSubviews()
     let scale = CGFloat(interfaceZoom?.scale ?? 1)
     homeWidth.constant = snapped(Self.homeRailWidth * scale)
