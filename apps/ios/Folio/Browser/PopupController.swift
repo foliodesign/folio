@@ -21,6 +21,8 @@ final class PopupController: UIViewController, WKNavigationDelegate, WKUIDelegat
   #endif
   private var mayPromote: Bool
   var onClose: (() -> Void)?
+  /// After `onClose`, when the sheet closed itself because a sign-in finished.
+  var onSignInFinished: (() -> Void)?
   private let host = UILabel()
   private let header = UIView()
   private let notice = UILabel()
@@ -160,7 +162,10 @@ final class PopupController: UIViewController, WKNavigationDelegate, WKUIDelegat
     // Signed in: Figma heads back to its file browser. Its opener already shows the account.
     case .dashboard where sawSignIn:
       onRouteEvidence?(.signInFinished, url)
+      let finished = onSignInFinished
+      onSignInFinished = nil
       close()
+      finished?()
     default: break
     }
   }
