@@ -68,6 +68,10 @@ final class BrowserWindowController: UIViewController {
   /// sheet's bottom rides on the keyboard (`keyboardOverlap`, points) and its top rises to at
   /// least `raisedSheet`, all in one jump when the keyboard starts to move (phone-layout.ts).
   private let keyRow = PhoneKeyRow()
+  /// iPhone Duo inner display in landscape (maintainer, 2026-11-11): a 1 pt line down the page's
+  /// right edge, so Figma's section dividers in the properties panel end on a border, as they do
+  /// on the other three sides, instead of running out into the system column.
+  private let pageTrailingBorder = UIView()
   private var raisedSheet = 0.0
   private var keyboardOverlap: CGFloat = 0
   private var keyboardBound: NSLayoutConstraint?
@@ -614,6 +618,7 @@ final class BrowserWindowController: UIViewController {
       placeColumn(column)
       if column.compact {
         if strip.statusRowReserve != 0 { strip.statusRowReserve = 0 }
+        placePageTrailingBorder(shown: false)
         return
       }
     }
@@ -628,8 +633,28 @@ final class BrowserWindowController: UIViewController {
     }
     let reserve = inRow ? Self.statusRowTrailingReserve : 0
     if strip.statusRowReserve != reserve { strip.statusRowReserve = reserve }
-    strip.clearsPageRail = inRow
+    // Only the Duo's inner display runs the full-width layout on a phone; in portrait Home sits
+    // clear of the corner already (maintainer, 2026-11-11), so the square is landscape only.
+    let duoLandscape =
+      PhoneExperiencePolicy.isPhone && !compactLayout && view.bounds.width > view.bounds.height
+    strip.clearsPageRail = duoLandscape
     strip.pageLeading = content.frame.minX - strip.frame.minX
+    placePageTrailingBorder(shown: duoLandscape && content.frame.maxX < view.bounds.maxX - 1)
+  }
+
+  private func placePageTrailingBorder(shown: Bool) {
+    if pageTrailingBorder.superview == nil {
+      pageTrailingBorder.backgroundColor = ChromePalette.divider
+      pageTrailingBorder.isUserInteractionEnabled = false
+      view.insertSubview(pageTrailingBorder, aboveSubview: content)
+    }
+    pageTrailingBorder.isHidden = !shown
+    guard shown else { return }
+    // As thick as Figma's 1 px lines at the interface zoom, like the bars' hairlines.
+    let pixels = max(1, view.traitCollection.displayScale)
+    let width = max(1 / pixels, (interfaceScale * pixels).rounded() / pixels)
+    pageTrailingBorder.frame = CGRect(
+      x: content.frame.maxX, y: content.frame.minY, width: width, height: content.frame.height)
   }
 
   /// The hidden strip's frame under the Duo top bar, so the page starts at its 72 pt bottom.

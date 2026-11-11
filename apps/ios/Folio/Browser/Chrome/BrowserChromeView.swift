@@ -93,12 +93,17 @@ final class BrowserChromeView: UIView, UIDragInteractionDelegate, UIDropInteract
   /// Phones: where the page starts, in this view's coordinates (set by the owner), so Home lines
   /// up with the page exactly rather than with a safe-area guide.
   var pageLeading: CGFloat = 0 { didSet { if pageLeading != oldValue { setNeedsLayout() } } }
-  /// iPhone Duo inner display, strip in the status row (maintainer, 2026-11-11): Home starts past
-  /// Figma's 48 pt navigation rail, where the first file tab used to start, so the display's
-  /// large corner above the rail stays empty.
+  /// iPhone Duo inner display, full-width layout in landscape (maintainer, 2026-11-11): an empty square over
+  /// Figma's 48 pt navigation rail, then the rail's 1 pt border carried up through the strip, then
+  /// Home, so the display's large corner above the rail stays empty.
   var clearsPageRail = false {
-    didSet { if clearsPageRail != oldValue { setNeedsLayout() } }
+    didSet {
+      guard clearsPageRail != oldValue else { return }
+      railBorder.isHidden = !clearsPageRail
+      setNeedsLayout()
+    }
   }
+  private let railBorder = UIView()
   private var cornerGuide: UILayoutGuide!
   /// Gap between iPad's window controls and Home (maintainer, 2026-11-11: it sat too close).
   private static let windowControlsGap: CGFloat = 6
@@ -163,7 +168,12 @@ final class BrowserChromeView: UIView, UIDragInteractionDelegate, UIDropInteract
     more.accessibilityIdentifier = "browser-more"
     more.addAction(UIAction { [weak self] _ in self?.toggleMenu() }, for: .touchUpInside)
 
-    for view in [hairline, homeTab, scroll, create, more] as [UIView] { addSubview(view) }
+    railBorder.backgroundColor = ChromePalette.divider
+    railBorder.isHidden = true
+    railBorder.isUserInteractionEnabled = false
+    for view in [hairline, railBorder, homeTab, scroll, create, more] as [UIView] {
+      addSubview(view)
+    }
     do {
       // Compact: Home, current tab title with tab count, ⋯. Built on every device; the strip
       // and '+' stay laid out but hidden while compact, so the iPad constraint set is unchanged.
@@ -314,7 +324,11 @@ final class BrowserChromeView: UIView, UIDragInteractionDelegate, UIDropInteract
     let leading: CGFloat
     if PhoneExperiencePolicy.isPhone {
       let zoom = CGFloat(interfaceZoom?.scale ?? 1)
-      leading = pageLeading + (clearsPageRail ? snapped(Self.homeRailWidth * zoom) : 0)
+      // Figma's rail: 48 CSS px wide, its 1 px border right of it, both scaled with the zoom.
+      let rail = snapped(Self.homeRailWidth * zoom)
+      let border = snapped(zoom)
+      railBorder.frame = CGRect(x: pageLeading + rail, y: 0, width: border, height: bounds.height)
+      leading = pageLeading + (clearsPageRail ? rail + border : 0)
     } else {
       // The corner-adapted guide is indented only where the window controls sit in the bar.
       let controls = cornerGuide.layoutFrame.minX > safeAreaInsets.left + 1
