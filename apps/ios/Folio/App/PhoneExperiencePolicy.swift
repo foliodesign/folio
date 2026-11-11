@@ -43,11 +43,19 @@ enum PhoneExperiencePolicy {
   static let pencilSeenKey = "folio.phone.pencilSeen"
   static let regularSeenKey = "folio.phone.regularSeen"
 
-  /// iPad always. A phone only once it has shown it is an iPhone Duo (public APIs only): it
-  /// reported a regular/regular scene, or delivered an Apple Pencil touch. Both persist.
+  /// iPad always. A phone only when it is an iPhone Duo: at once when it reports multiple-scene
+  /// support (a 27.1 SDK build), otherwise once it reported a regular/regular scene or delivered
+  /// an Apple Pencil touch (both persist). Regular iPhones never get Touch mode (maintainer,
+  /// 2026-11-11: they take no Apple Pencil).
   static func supportsPencil(_ defaults: UserDefaults = .standard) -> Bool {
-    !isPhone || defaults.bool(forKey: pencilSeenKey) || defaults.bool(forKey: regularSeenKey)
+    !isPhone || isDuo || defaults.bool(forKey: pencilSeenKey)
+      || defaults.bool(forKey: regularSeenKey)
   }
+
+  /// The iPhone Duo, known from public API alone: the only phone that allows more than one
+  /// scene. Needs a build with the 27.1 SDK; a 27.0 build runs in compatibility mode there and
+  /// reports false.
+  static var isDuo: Bool { isPhone && UIApplication.shared.supportsMultipleScenes }
 
   /// Records proof of Pencil support. Returns true when it just made `supportsPencil` true.
   @discardableResult
@@ -88,12 +96,53 @@ enum PhoneExperiencePolicy {
   /// outer display (466 x 678 pt) does not. Regular iPhones report no multiple-scene support.
   static func supportsMultipleWindows(on screen: UIScreen?) -> Bool {
     guard UIApplication.shared.supportsMultipleScenes else { return false }
-    guard isPhone else { return true }
-    guard let size = screen?.bounds.size else { return false }
-    return min(size.width, size.height) >= innerDisplayMinSide
+    return !isPhone || isDuoInnerDisplay(screen)
   }
 
   static let innerDisplayMinSide: CGFloat = 600
+
+  /// The iPhone Duo's inner display: a phone screen whose short side is at least
+  /// `innerDisplayMinSide`, whether Folio fills it or shares it.
+  static func isDuoInnerDisplay(_ screen: UIScreen?) -> Bool {
+    guard isPhone, let size = screen?.bounds.size else { return false }
+    return min(size.width, size.height) >= innerDisplayMinSide
+  }
+
+  /// iPhone Duo window chrome under test (maintainer, 2026-11-10). The directions are in
+  /// `docs/research/iphone-duo-chrome.md`: A (concentric glass bar) and B (floating glass
+  /// islands) are specified there for later; C (side rails) is built.
+  enum DuoChrome: Int, CaseIterable {
+    case topBar
+    case sideRails
+
+    var title: String {
+      switch self {
+      case .topBar: "Top bar"
+      case .sideRails: "Side rails"
+      }
+    }
+  }
+
+  static let duoChromeKey = "folio.duo.chrome"
+  static let duoChromeChanged = Notification.Name("FolioDuoChromeChanged")
+
+  /// Side rails by default while the maintainer tests direction C.
+  static var duoChrome: DuoChrome {
+    get {
+      (UserDefaults.standard.object(forKey: duoChromeKey) as? Int).flatMap(DuoChrome.init)
+        ?? .sideRails
+    }
+    set {
+      UserDefaults.standard.set(newValue.rawValue, forKey: duoChromeKey)
+      NotificationCenter.default.post(name: duoChromeChanged, object: nil)
+    }
+  }
+
+  /// Side rails (Freeform-style glass column) replace the top bar's buttons wherever the Duo
+  /// shows a window beside a vertical column: the outer display, either window of a split inner
+  /// display and the full inner display in landscape. The owner decides the column from the
+  /// window's safe area and position; the inner display in portrait keeps the top bar.
+  static var usesDuoColumn: Bool { duoChrome == .sideRails && isDuo }
 
   /// The automatic touch mode follows the system Pencil preference only on iPad.
   static var followsSystemPencilPreference: Bool { !isPhone }

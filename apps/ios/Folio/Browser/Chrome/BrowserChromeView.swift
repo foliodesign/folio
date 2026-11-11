@@ -88,6 +88,16 @@ final class BrowserChromeView: UIView, UIDragInteractionDelegate, UIDropInteract
   private var borderHeight: NSLayoutConstraint!
   private var tabWidths: [UUID: NSLayoutConstraint] = [:]
   private var homeWidth: NSLayoutConstraint!
+  private var moreTrailing: NSLayoutConstraint!
+  /// Space kept free at the trailing end for the system status items when the strip shares the
+  /// iPhone Duo's status row (set by the owner; 0 elsewhere).
+  var statusRowReserve: CGFloat = 0 {
+    didSet {
+      guard statusRowReserve != oldValue else { return }
+      moreTrailing.constant = -4 - statusRowReserve
+      setNeedsLayout()
+    }
+  }
   private var tabViews: [UUID: ChromeTabView] = [:]
   private var tabWidth: CGFloat = 220
   private var lastSelectedID: UUID?
@@ -160,6 +170,7 @@ final class BrowserChromeView: UIView, UIDragInteractionDelegate, UIDropInteract
     stackWidth = stack.widthAnchor.constraint(equalToConstant: 0)
     homeWidth = homeTab.widthAnchor.constraint(equalToConstant: Self.homeRailWidth)
     borderHeight = hairline.heightAnchor.constraint(equalToConstant: 1)
+    moreTrailing = more.trailingAnchor.constraint(equalTo: guide.trailingAnchor, constant: -4)
     let fitTabs = scroll.widthAnchor.constraint(equalTo: stack.widthAnchor)
     fitTabs.priority = .defaultHigh
     NSLayoutConstraint.activate([
@@ -185,7 +196,7 @@ final class BrowserChromeView: UIView, UIDragInteractionDelegate, UIDropInteract
       create.widthAnchor.constraint(equalToConstant: Self.buttonWidth),
       create.trailingAnchor.constraint(lessThanOrEqualTo: more.leadingAnchor, constant: -8),
 
-      more.trailingAnchor.constraint(equalTo: guide.trailingAnchor, constant: -4),
+      moreTrailing,
       more.topAnchor.constraint(equalTo: topAnchor),
       more.bottomAnchor.constraint(equalTo: bottomAnchor),
       more.widthAnchor.constraint(equalToConstant: Self.buttonWidth),
@@ -206,8 +217,12 @@ final class BrowserChromeView: UIView, UIDragInteractionDelegate, UIDropInteract
     setNeedsLayout()
   }
 
+  /// Called after each render, so other chrome (the iPhone Duo side rail) follows the same state.
+  var onRendered: ((B3BrowserChromeState) -> Void)?
+
   func render(_ session: B3BrowserChromeState) {
     lastSession = session
+    defer { onRendered?(session) }
     if compact {
       let selected = session.tabs.first { $0.id == session.selectedID } ?? session.home
       tabsButton.update(
@@ -318,14 +333,21 @@ final class BrowserChromeView: UIView, UIDragInteractionDelegate, UIDropInteract
     stackWidth.constant = total
   }
 
-  private func toggleMenu() {
+  private func toggleMenu() { toggleMenu(from: more, beside: false) }
+
+  /// Closes the ⋯ menu if open (layout switches).
+  func menuDismiss() { menu?.dismiss() }
+
+  /// The ⋯ menu opened from another control, such as the iPhone Duo side rail's ⋯ (beside it).
+  func toggleMenu(from source: UIView, beside: Bool) {
     if let menu {
       menu.dismiss()
       return
     }
-    guard let window else { return }
+    guard let window = source.window else { return }
     menu = ChromeMenuPresenter.present(
-      in: window, below: more.convert(more.bounds, to: window), compact: compact
+      in: window, below: source.convert(source.bounds, to: window), compact: compact,
+      beside: beside
     ) { [weak self] in self?.menuItems() ?? [] }
   }
 
@@ -538,15 +560,18 @@ final class BrowserChromeView: UIView, UIDragInteractionDelegate, UIDropInteract
       items.append(
         ChromeMenuItem(title: "Interface zoom", hint: zoom.percent, children: zoomItems(zoom)))
     }
+    // Touch mode exists only where Apple Pencil does: iPad and the iPhone Duo.
     let input = InputStrategies()
-    items.append(
-      ChromeMenuItem(
-        title: "Touch mode", hint: input.touchMode.title,
-        children: TouchMode.allCases.map { mode in
-          ChromeMenuItem(title: mode.title, checked: input.touchMode == mode) {
-            input.touchMode = mode
-          }
-        }))
+    if PhoneExperiencePolicy.supportsPencil() {
+      items.append(
+        ChromeMenuItem(
+          title: "Touch mode", hint: input.touchMode.title,
+          children: TouchMode.allCases.map { mode in
+            ChromeMenuItem(title: mode.title, checked: input.touchMode == mode) {
+              input.touchMode = mode
+            }
+          }))
+    }
     items += [
       ChromeMenuItem(
         title: "Keep tabs loaded", hint: keepTabsLoaded == 0 ? "Automatic" : String(keepTabsLoaded),

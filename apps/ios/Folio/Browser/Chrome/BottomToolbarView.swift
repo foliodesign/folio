@@ -65,6 +65,47 @@ final class BottomToolbarView: UIView {
   /// iPhone landscape: Properties, fixed at the right edge.
   private let trailingFixed = UIStackView()
   private(set) var landscape = false
+  /// Which commands the bar shows. The iPhone Duo's side column takes some: Undo, Redo, Cut,
+  /// Copy and Paste unfolded full screen (`withoutHistoryAndClipboard`), every command and Keys
+  /// in compact layouts (`none`, with `keysInRow`). Modifiers and arrows always stay.
+  enum Commands { case all, withoutHistoryAndClipboard, none }
+  /// Command buttons, dividers and Keys by group (0 Undo/Redo, 1 clipboard, 2 Duplicate/Select
+  /// all, 3 grouping, 4 Keys); a divider belongs to the group it precedes.
+  private var commandViews: [(group: Int, divider: Bool, view: UIView)] = []
+  var commands = Commands.all {
+    didSet {
+      guard commands != oldValue else { return }
+      for (group, divider, view) in commandViews {
+        switch commands {
+        case .all: view.isHidden = false
+        case .none: view.isHidden = true
+        // Group 2's divider would otherwise lead the row.
+        case .withoutHistoryAndClipboard: view.isHidden = group <= 1 || (divider && group == 2)
+        }
+      }
+    }
+  }
+  /// Compact layouts: whether the modifier and arrow row is open (Keys).
+  var keysExpanded: Bool {
+    get { phone && !left.isHidden }
+    set { setKeysExpanded(newValue) }
+  }
+  /// iPhone Duo compact layouts (maintainer, 2026-11-11): one row with the modifiers and arrows
+  /// always shown at the left and Layers and Properties at the right, by the side column. Pair
+  /// with `commands = .none`; the commands live in the column.
+  var keysInRow = false {
+    didSet {
+      guard phone, keysInRow != oldValue else { return }
+      setKeysExpanded(false)
+      left.isHidden = !keysInRow
+      keysScroll.isHidden = !keysInRow
+      if !keysInRow { releaseModifiers() }
+      placePanels()
+      superview?.setNeedsLayout()
+    }
+  }
+  private var keysAbove: NSLayoutConstraint?
+  private var keysTrailing: NSLayoutConstraint?
   private var rowConstraints: [NSLayoutConstraint] = []
 
   init(phone: Bool = PhoneExperiencePolicy.isPhone) {
@@ -140,7 +181,11 @@ final class BottomToolbarView: UIView {
       ],
     ]
     for (index, group) in groups.enumerated() {
-      if index > 0 { right.addArrangedSubview(divider()) }
+      if index > 0 {
+        let line = divider()
+        right.addArrangedSubview(line)
+        commandViews.append((index, true, line))
+      }
       for (icon, label, shortcut, action) in group {
         let button = self.button(icon, label, "\(label) \(shortcut)")
         button.addAction(
@@ -149,6 +194,7 @@ final class BottomToolbarView: UIView {
             action()
           }, for: .touchUpInside)
         right.addArrangedSubview(button)
+        commandViews.append((index, false, button))
       }
     }
     if phone { addKeysToggle() }
@@ -193,13 +239,13 @@ final class BottomToolbarView: UIView {
       keysFill.priority = .defaultHigh
       keysTop = keysScroll.topAnchor.constraint(equalTo: topAnchor)
       scrollTop = scroll.topAnchor.constraint(equalTo: topAnchor)
+      keysAbove = keysScroll.bottomAnchor.constraint(equalTo: scroll.topAnchor)
+      keysTrailing = keysScroll.trailingAnchor.constraint(
+        equalTo: safeAreaLayoutGuide.trailingAnchor, constant: -4)
       NSLayoutConstraint.activate([
-        scrollTop!, height, rowHeight, keysFill,
-        keysScroll.bottomAnchor.constraint(equalTo: scroll.topAnchor),
+        scrollTop!, height, rowHeight, keysFill, keysAbove!, keysTrailing!,
         keysScroll.leadingAnchor.constraint(
           equalTo: safeAreaLayoutGuide.leadingAnchor, constant: 4),
-        keysScroll.trailingAnchor.constraint(
-          equalTo: safeAreaLayoutGuide.trailingAnchor, constant: -4),
         keysScroll.heightAnchor.constraint(equalTo: left.heightAnchor),
         left.topAnchor.constraint(equalTo: keysScroll.contentLayoutGuide.topAnchor),
         left.bottomAnchor.constraint(equalTo: keysScroll.contentLayoutGuide.bottomAnchor),
@@ -241,26 +287,52 @@ final class BottomToolbarView: UIView {
       panels[side] = button
       fixed.addArrangedSubview(button)
     }
-    fixed.addArrangedSubview(divider())
+    // Separates the toggles from the commands, so it goes with them.
+    let line = divider()
+    fixed.addArrangedSubview(line)
+    commandViews.append((0, true, line))
   }
 
   /// iPhone: one-row landscape layout, or the portrait strip (panel toggles both at the left).
   func setLandscape(_ value: Bool) {
-    guard phone, value != landscape, let properties = panels["right"] else { return }
+    guard phone, value != landscape else { return }
     landscape = value
-    properties.removeFromSuperview()
-    if value {
+    placePanels()
+  }
+
+  /// Layers and Properties: both at the right beside the keys (`keysInRow`), each on the side
+  /// its panel opens (landscape), or both at the left before the commands.
+  private func placePanels() {
+    guard let layers = panels["left"], let properties = panels["right"] else { return }
+    for button in [layers, properties] { button.removeFromSuperview() }
+    if keysInRow {
+      trailingFixed.addArrangedSubview(layers)
       trailingFixed.addArrangedSubview(properties)
     } else {
-      fixed.insertArrangedSubview(properties, at: 1)
+      fixed.insertArrangedSubview(layers, at: 0)
+      if landscape {
+        trailingFixed.addArrangedSubview(properties)
+      } else {
+        fixed.insertArrangedSubview(properties, at: 1)
+      }
     }
-    trailingFixed.isHidden = !value
+    trailingFixed.isHidden = !(keysInRow || landscape)
+    fixed.isHidden = keysInRow
+    scroll.isHidden = keysInRow
     layoutRow()
   }
 
   private func layoutRow() {
     NSLayoutConstraint.deactivate(rowConstraints)
     var row: [NSLayoutConstraint] = []
+    keysAbove?.isActive = !keysInRow
+    keysTrailing?.isActive = !keysInRow
+    if keysInRow {
+      row += [
+        keysScroll.topAnchor.constraint(equalTo: scroll.topAnchor),
+        keysScroll.trailingAnchor.constraint(equalTo: trailingFixed.leadingAnchor),
+      ]
+    }
     if landscape {
       row += [
         scroll.leadingAnchor.constraint(equalTo: fixed.trailingAnchor),
@@ -279,7 +351,8 @@ final class BottomToolbarView: UIView {
   }
 
   private func addKeysToggle() {
-    right.addArrangedSubview(divider())
+    let line = divider()
+    right.addArrangedSubview(line)
     let button = self.button("keyboard", "Keys", "Modifier and arrow keys")
     latchedLook(button)
     button.accessibilityHint = "Shows Shift, Control, Option, Command and the arrow keys."
@@ -291,16 +364,13 @@ final class BottomToolbarView: UIView {
       for: .touchUpInside)
     keysButton = button
     right.addArrangedSubview(button)
+    commandViews += [(4, true, line), (4, false, button)]
   }
 
   private func setKeysExpanded(_ expanded: Bool) {
-    guard phone, left.isHidden == expanded else { return }
-    if !expanded {
-      // Collapsing releases every held or latched modifier.
-      held.removeAll()
-      toggled.removeAll()
-      publish()
-    }
+    guard phone, !keysInRow, left.isHidden == expanded else { return }
+    // Collapsing releases every held or latched modifier.
+    if !expanded { releaseModifiers() }
     keysButton?.isSelected = expanded
     left.isHidden = !expanded
     keysScroll.isHidden = !expanded
@@ -397,6 +467,12 @@ final class BottomToolbarView: UIView {
     return button
   }
 
+  private func releaseModifiers() {
+    held.removeAll()
+    toggled.removeAll()
+    publish()
+  }
+
   private func press(_ offset: Int) {
     // Pressing another modifier while one is held is a chord, not a tap of the held one.
     markUsed()
@@ -466,14 +542,15 @@ final class BottomToolbarView: UIView {
       button.configuration?.image = ToolbarIcon.image(icon, pointSize: pointSize)
       button.configuration?.preferredSymbolConfigurationForImage = nil
     }
-    arrows.symbolConfiguration = UIImage.SymbolConfiguration(pointSize: pointSize, weight: .light)
+    arrows.symbolConfiguration = ToolbarIcon.configuration(
+      FlickArrowControl.idle, pointSize: pointSize)
   }
 }
 
-/// The chrome's one icon system: every glyph is a light symbol (or an original drawing sized
-/// like one) at the bar's point size, times a per-glyph optical factor so wide, dense and filled
-/// shapes carry the same visual mass as open ones. Drawings scale their geometry, not their
-/// stroke, so every glyph keeps the same line weight. Unlisted keys use factor 1.
+/// The chrome's one icon system: every glyph is a symbol (or an original drawing) at the bar's
+/// point size, times a per-glyph optical factor so every glyph looks the same size, with the
+/// symbol weight stepped so every line is as thick as the drawings'. Drawings scale their
+/// geometry, not their stroke. Unlisted keys use factor 1.
 @MainActor
 enum ToolbarIcon {
   static let copy = "folio.copy"
@@ -495,30 +572,53 @@ enum ToolbarIcon {
   private static var lineWidth = line
   private static var dash: CGFloat = 1
 
-  /// Optical size factors, judged side by side in the phone pill and bar.
+  /// Optical size factors, measured (2026-11-11, maintainer: Undo and Cut looked larger than
+  /// Copy and Paste). Each glyph is scaled so the fourth root of (convex hull area × bounding box
+  /// area) of its ink is 15 pt at 16 pt, with no side past 18 pt; thin glyphs (⌃, the line tool,
+  /// the pencil) match the others' width instead, and ⋯ and the chevrons keep their own size.
+  /// Checked against the Duo simulator's render: an SF Symbol at a given point size draws about
+  /// 1.27 times larger on iOS than on the Mac, where the glyphs were measured.
   private static let optics: [String: CGFloat] = [
-    "scissors": 0.8,
-    "bubble.left": 0.88,
-    "square": 0.86,
-    "circle": 0.86,
-    "square.dashed": 0.86,
-    "photo": 0.84,
-    "plus.square.on.square": 0.84,
-    "square.3.layers.3d": 0.86,
-    "slider.horizontal.3": 0.88,
-    "chevron.left.forwardslash.chevron.right": 0.84,
-    "keyboard": 0.8,
-    "arrow.uturn.backward": 0.94,
-    "arrow.uturn.forward": 0.94,
-    "shift": 0.9,
-    "option": 0.9,
-    frame: 0.86,
-    copy: 1.06,
-    paste: 1.04,
+    "arrow.uturn.backward": 0.9,
+    "arrow.uturn.forward": 0.9,
+    "scissors": 0.72,
+    "plus.square.on.square": 0.7,
+    "keyboard": 0.72,
+    "square.3.layers.3d": 0.74,
+    "slider.horizontal.3": 0.84,
+    "shift": 0.84,
+    "control": 1.04,
+    "option": 0.86,
+    "command": 0.78,
+    "arrow.up.and.down.and.arrow.left.and.right": 0.76,
+    "cursorarrow": 0.9,
+    "hand.raised": 0.84,
+    "square.dashed": 0.82,
+    "crop": 0.78,
+    "square": 0.82,
+    "line.diagonal": 1.12,
+    "arrow.up.right": 1.08,
+    "circle": 0.74,
+    "photo": 0.72,
+    "pencil.tip": 0.96,
+    "pencil": 1.02,
+    "bubble.left": 0.68,
+    "chevron.left.forwardslash.chevron.right": 0.66,
+    "square.grid.2x2": 0.82,
+    "house": 0.7,
+    "house.fill": 0.7,
+    copy: 1.14,
+    paste: 1.08,
+    selectAll: 1.08,
     group: 0.94,
-    ungroup: 0.94,
-    designMode: 1.06,
-    annotation: 0.94,
+    ungroup: 1.02,
+    frame: 1.06,
+    scale: 1.22,
+    text: 1.38,
+    measurement: 1.08,
+    annotation: 1.04,
+    actions: 1.1,
+    designMode: 1.32,
   ]
 
   /// The image at its optical size, symbol configuration included: callers set no
@@ -526,12 +626,7 @@ enum ToolbarIcon {
   static func image(_ key: String, pointSize: CGFloat) -> UIImage? {
     let factor = optics[key] ?? 1
     guard let body = drawings[key] else {
-      // A shrunk symbol thins its line too; one weight up restores the shared stroke.
-      let weight: UIImage.SymbolWeight = factor < 0.9 ? .regular : .light
-      return UIImage(
-        systemName: key,
-        withConfiguration: UIImage.SymbolConfiguration(
-          pointSize: pointSize * factor, weight: weight))
+      return UIImage(systemName: key, withConfiguration: configuration(key, pointSize: pointSize))
     }
     // Design grid is 16 units; a light 16 pt symbol spans about 18 pt.
     let side = (pointSize * 18 / 16).rounded()
@@ -546,6 +641,15 @@ enum ToolbarIcon {
       UIColor.black.set()
       body()
     }.withRenderingMode(.alwaysTemplate)
+  }
+
+  /// A symbol's configuration at its optical size. A shrunk symbol thins its line too, so its
+  /// weight steps up to keep the drawings' stroke (about 0.084 of the point size): light, regular
+  /// and medium strokes measure 0.077, 0.103 and 0.125 of theirs.
+  static func configuration(_ key: String, pointSize: CGFloat) -> UIImage.SymbolConfiguration {
+    let factor = optics[key] ?? 1
+    let weight: UIImage.SymbolWeight = factor < 0.74 ? .medium : factor < 0.94 ? .regular : .light
+    return UIImage.SymbolConfiguration(pointSize: pointSize * factor, weight: weight)
   }
 
   /// Group menu chevrons: small, but bold enough to read beside the tools.
@@ -752,7 +856,7 @@ final class FlickArrowControl: UIControl {
     didSet { render() }
   }
 
-  private static let idle = "arrow.up.and.down.and.arrow.left.and.right"
+  static let idle = "arrow.up.and.down.and.arrow.left.and.right"
   private let plate = UIView()
   private let image = UIImageView()
   private let haptics = UIImpactFeedbackGenerator(style: .light)
