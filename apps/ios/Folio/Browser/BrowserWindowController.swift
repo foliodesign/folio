@@ -628,6 +628,8 @@ final class BrowserWindowController: UIViewController {
     }
     let reserve = inRow ? Self.statusRowTrailingReserve : 0
     if strip.statusRowReserve != reserve { strip.statusRowReserve = reserve }
+    strip.clearsPageRail = inRow
+    strip.pageLeading = content.frame.minX - strip.frame.minX
   }
 
   /// The hidden strip's frame under the Duo top bar, so the page starts at its 72 pt bottom.
@@ -687,6 +689,8 @@ final class BrowserWindowController: UIViewController {
     // In the system column the column runs down to the screen's bottom edge, over the bottom
     // bar's background: the bar keeps its buttons inside the safe area, clear of it.
     if !bottomBar.isHidden && !system { limit = min(limit, bottomBar.frame.minY - gap) }
+    // There, its bottom control stays level with the bar's row, which sits lower on the Duo.
+    if !bottomBar.isHidden && system { limit = bottomBar.frame.minY + bottomBar.rowCentre }
     if !sheetHandle.isHidden { limit = min(limit, sheetHandle.frame.minY - gap) }
     if let keyboardTop { limit = min(limit, keyboardTop - gap) }
     // The number key row floats above the keyboard, across the column.

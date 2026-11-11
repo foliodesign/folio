@@ -76,7 +76,7 @@ extension DeveloperToolsController {
       rows.append(
         choiceRow(
           "iPhone Duo layout",
-          "Side rails put Undo at the top and Cut, Copy and Paste at the bottom of the window's edge, in glass, wherever the system shows its side column. Folded and side by side, Home, the tab, the count and ⋯ sit in glass in a short top bar, a tools button holds the other edit commands, and the bottom bar always shows the modifier keys. Top bar keeps the usual bars everywhere.",
+          "Side rails put Undo at the top and Cut, Copy and Paste at the bottom of the window's edge, in glass, wherever the system shows its side column. Folded and side by side, Home, the tab, the count and ⋯ sit in a short plain top bar, a tools button holds the other edit commands, and the bottom bar always shows the modifier keys. Top bar keeps the usual bars everywhere.",
           styles.map(\.title), styles.firstIndex(of: PhoneExperiencePolicy.duoChrome)
         ) { PhoneExperiencePolicy.duoChrome = styles[$0] })
     }
