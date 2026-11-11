@@ -81,8 +81,19 @@ enum PhoneExperiencePolicy {
   /// floating tool bar, so it starts visible there too.
   static var bottomToolbarDefault: Bool { true }
 
-  /// Phones have one window per app; no New window or Move to window.
-  static var supportsMultipleWindows: Bool { !isPhone }
+  /// New window and Move to New Window: wherever the system allows more than one scene (iPad,
+  /// the iPhone Duo). The Duo opens new windows on its inner display only, so a phone shows the
+  /// commands only on a screen whose short side is at least `innerDisplayMinSide`: the inner
+  /// display (about 890 x 626 pt) qualifies whether Folio fills it or shares it side by side; the
+  /// outer display (466 x 678 pt) does not. Regular iPhones report no multiple-scene support.
+  static func supportsMultipleWindows(on screen: UIScreen?) -> Bool {
+    guard UIApplication.shared.supportsMultipleScenes else { return false }
+    guard isPhone else { return true }
+    guard let size = screen?.bounds.size else { return false }
+    return min(size.width, size.height) >= innerDisplayMinSide
+  }
+
+  static let innerDisplayMinSide: CGFloat = 600
 
   /// The automatic touch mode follows the system Pencil preference only on iPad.
   static var followsSystemPencilPreference: Bool { !isPhone }
