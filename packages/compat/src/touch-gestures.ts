@@ -135,6 +135,10 @@ if (runtime && !runtime.setTouchGestures) {
     | undefined;
   let tap: { target: Element; x: number; y: number; until: number } | undefined;
   let consumed: { target: Element; until: number } | undefined;
+  // Home: a clean tap whose compatibility click never comes (Figma captures the pointer on file
+  // cards since 2026-11; WebKit then sends no click) opens from the tap itself after this wait.
+  let clickWait: ReturnType<typeof setTimeout> | undefined;
+  const CLICK_WAIT_MS = 300;
   const style = document.createElement("style");
   style.textContent = "canvas { -webkit-touch-callout: none !important; }";
   const editable = (target: Element) =>
@@ -148,6 +152,7 @@ if (runtime && !runtime.setTouchGestures) {
   const reset = () => {
     cancelUIHold();
     clearTimeout(timer);
+    clearTimeout(clickWait);
     pending = undefined;
     tap = undefined;
     consumed = undefined;
@@ -458,12 +463,22 @@ if (runtime && !runtime.setTouchGestures) {
         ) <= 6
       ) {
         homeDecision(event, "home-armed");
-        tap = {
+        const armed = {
           target: sequence.target,
           x: event.clientX,
           y: event.clientY,
           until: performance.now() + 700,
         };
+        tap = armed;
+        clearTimeout(clickWait);
+        clickWait = setTimeout(() => {
+          if (tap !== armed || !enabled || !home) return;
+          tap = undefined;
+          homeDecision(event, "home-no-click");
+          // A late compatibility click on the same card must not select it again.
+          consumed = { target: armed.target, until: performance.now() + 700 };
+          openHome(armed.target, event);
+        }, CLICK_WAIT_MS);
       }
     }
     if (event.type === "pointerup" || event.type === "pointercancel") {
@@ -521,6 +536,7 @@ if (runtime && !runtime.setTouchGestures) {
     if (event.type !== "click" || !tap || !home) return;
     const sequence = tap;
     tap = undefined;
+    clearTimeout(clickWait);
     if (
       performance.now() > sequence.until ||
       !(event.target instanceof Node) ||
@@ -544,14 +560,18 @@ if (runtime && !runtime.setTouchGestures) {
     homeDecision(event, "home-double");
     suppress(event);
     // Replace the compatibility click with the full mouse double-click sequence.
-    mouseSequence(sequence.target, event, 0, 1);
-    if (!sequence.target.isConnected) {
+    openHome(sequence.target, event);
+  };
+  /** Home: the full mouse double-click sequence that opens a file card. */
+  const openHome = (target: Element, event: MouseEvent) => {
+    mouseSequence(target, event, 0, 1);
+    if (!target.isConnected) {
       homeDecision(event, "home-detached");
       return;
     }
-    mouseSequence(sequence.target, event, 0, 2);
+    mouseSequence(target, event, 0, 2);
     dispatchUI(
-      sequence.target,
+      target,
       new MouseEvent("dblclick", {
         bubbles: true,
         cancelable: true,

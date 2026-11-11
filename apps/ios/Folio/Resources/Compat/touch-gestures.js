@@ -116,6 +116,8 @@
     let pending;
     let tap;
     let consumed;
+    let clickWait;
+    const CLICK_WAIT_MS = 300;
     const style = document.createElement("style");
     style.textContent = "canvas { -webkit-touch-callout: none !important; }";
     const editable = (target) => target.closest(
@@ -128,6 +130,7 @@
     const reset = () => {
       cancelUIHold();
       clearTimeout(timer);
+      clearTimeout(clickWait);
       pending = void 0;
       tap = void 0;
       consumed = void 0;
@@ -361,12 +364,21 @@
           event.clientY - sequence.down.clientY
         ) <= 6) {
           homeDecision(event, "home-armed");
-          tap = {
+          const armed = {
             target: sequence.target,
             x: event.clientX,
             y: event.clientY,
             until: performance.now() + 700
           };
+          tap = armed;
+          clearTimeout(clickWait);
+          clickWait = setTimeout(() => {
+            if (tap !== armed || !enabled || !home) return;
+            tap = void 0;
+            homeDecision(event, "home-no-click");
+            consumed = { target: armed.target, until: performance.now() + 700 };
+            openHome(armed.target, event);
+          }, CLICK_WAIT_MS);
         }
       }
       if (event.type === "pointerup" || event.type === "pointercancel") {
@@ -396,6 +408,7 @@
       if (event.type !== "click" || !tap || !home) return;
       const sequence = tap;
       tap = void 0;
+      clearTimeout(clickWait);
       if (performance.now() > sequence.until || !(event.target instanceof Node) || !sequence.target.contains(event.target) || Math.hypot(event.clientX - sequence.x, event.clientY - sequence.y) > 6) {
         homeDecision(
           event,
@@ -405,14 +418,17 @@
       }
       homeDecision(event, "home-double");
       suppress(event);
-      mouseSequence(sequence.target, event, 0, 1);
-      if (!sequence.target.isConnected) {
+      openHome(sequence.target, event);
+    };
+    const openHome = (target, event) => {
+      mouseSequence(target, event, 0, 1);
+      if (!target.isConnected) {
         homeDecision(event, "home-detached");
         return;
       }
-      mouseSequence(sequence.target, event, 0, 2);
+      mouseSequence(target, event, 0, 2);
       dispatchUI(
-        sequence.target,
+        target,
         new MouseEvent("dblclick", {
           bubbles: true,
           cancelable: true,
