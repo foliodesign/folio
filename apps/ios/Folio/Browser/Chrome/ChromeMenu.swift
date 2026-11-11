@@ -61,26 +61,30 @@ final class ChromeMenuPresenter: UIView {
   private var dismissing = false
   private let anchor: CGRect
   private let compact: Bool
+  /// Opens to the trailing side of the anchor, top-aligned (side rail), instead of below it.
+  private let beside: Bool
   private var shownSize: CGSize?
 
   /// Shows the menu below `anchor` (in `window` coordinates), trailing-aligned.
   @discardableResult
   static func present(
-    in window: UIWindow, below anchor: CGRect, compact: Bool = false,
+    in window: UIWindow, below anchor: CGRect, compact: Bool = false, beside: Bool = false,
     items: @escaping () -> [ChromeMenuItem]
   ) -> ChromeMenuPresenter {
     let presenter = ChromeMenuPresenter(
-      window: window, anchor: anchor, compact: compact, items: items)
+      window: window, anchor: anchor, compact: compact, beside: beside, items: items)
     presenter.show()
     return presenter
   }
 
   private init(
-    window: UIWindow, anchor: CGRect, compact: Bool, items: @escaping () -> [ChromeMenuItem]
+    window: UIWindow, anchor: CGRect, compact: Bool, beside: Bool,
+    items: @escaping () -> [ChromeMenuItem]
   ) {
     provider = items
     self.anchor = anchor
     self.compact = compact
+    self.beside = beside
     super.init(frame: window.bounds)
     autoresizingMask = [.flexibleWidth, .flexibleHeight]
     previousResponder = BrowserResponderFocus.first(in: window)
@@ -93,17 +97,32 @@ final class ChromeMenuPresenter: UIView {
 
   required init?(coder: NSCoder) { fatalError("Use present(in:below:items:)") }
 
-  /// Room below the anchor, above the home indicator on phones.
+  /// Room below the anchor, above the home indicator on phones. Beside a rail the menu may
+  /// use the window's full safe height: it slides up from the anchor as far as it needs.
   private var availableHeight: CGFloat {
-    bounds.height - anchor.maxY - 16 - (compact ? safeAreaInsets.bottom : 0)
+    beside
+      ? bounds.height - safeAreaInsets.top - safeAreaInsets.bottom - 16
+      : bounds.height - anchor.maxY - 16 - (compact ? safeAreaInsets.bottom : 0)
   }
 
   private func show() {
     let panel = makePanel(items: provider())
     var size = panel.preferredSize(maxHeight: availableHeight)
     if compact { size.width = min(bounds.width - 16, max(size.width, 260)) }
-    let x = min(max(8, anchor.maxX - size.width), bounds.width - size.width - 8)
-    panel.frame = CGRect(x: x, y: anchor.maxY + 4, width: size.width, height: size.height)
+    if beside {
+      // Opens towards the page: right of a leading rail, left of a trailing one.
+      let x =
+        anchor.midX > bounds.midX
+        ? max(8, anchor.minX - 8 - size.width)
+        : min(anchor.maxX + 8, bounds.width - size.width - 8)
+      // Level with the anchor when it fits, otherwise raised until its bottom clears the edge.
+      let lowest = bounds.height - safeAreaInsets.bottom - 8 - size.height
+      let y = max(safeAreaInsets.top + 8, min(anchor.minY, lowest))
+      panel.frame = CGRect(x: x, y: y, width: size.width, height: size.height)
+    } else {
+      let x = min(max(8, anchor.maxX - size.width), bounds.width - size.width - 8)
+      panel.frame = CGRect(x: x, y: anchor.maxY + 4, width: size.width, height: size.height)
+    }
     shownSize = bounds.size
     panels = [panel]
     path = []

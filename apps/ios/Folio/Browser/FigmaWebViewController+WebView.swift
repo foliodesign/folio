@@ -107,7 +107,9 @@ extension FigmaWebViewController {
     viewport.translatesAutoresizingMaskIntoConstraints = false
     view.insertSubview(viewport, belowSubview: diagnosticsButton)
     NSLayoutConstraint.activate([
-      viewport.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
+      // The top bar always sits above this view, and on the iPhone Duo it may rise into the
+      // status row, leaving a sliver of the window's top safe area here; ignore it.
+      viewport.topAnchor.constraint(equalTo: view.topAnchor),
       viewport.bottomAnchor.constraint(equalTo: view.bottomAnchor),
       viewport.leadingAnchor.constraint(equalTo: view.leadingAnchor),
       viewport.trailingAnchor.constraint(equalTo: view.trailingAnchor),

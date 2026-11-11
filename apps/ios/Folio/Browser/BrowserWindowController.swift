@@ -78,6 +78,32 @@ final class BrowserWindowController: UIViewController {
   private var shownContentBottom: NSLayoutConstraint?
   private var hiddenContentBottom: NSLayoutConstraint?
   private var stripHeight: NSLayoutConstraint?
+  /// Strip top below the safe area (normal) or inside the status row (iPhone Duo inner display).
+  private var stripSafeTop: NSLayoutConstraint?
+  private var stripStatusTop: NSLayoutConstraint?
+  /// iPhone Duo side column (`SideRailView`): an overlay over the whole window, hidden elsewhere.
+  private let rail = SideRailView()
+  /// iPhone Duo top bar for compact column layouts (`DuoTitleBar`).
+  private let titleBar = DuoTitleBar()
+  /// The column's side while it shows, and whether the window is compact (Duo top bar).
+  private var duoColumn: (side: SideRailView.Side, compact: Bool)?
+  private var duoColumnReport = ""
+  /// Hidden strip under the Duo top bar: its bottom sets the page's top (72 pt).
+  private var stripColumnTop: NSLayoutConstraint?
+  private var stripColumnHeight: NSLayoutConstraint?
+  private var stripCollapsed: NSLayoutConstraint?
+  /// Content edges: inside the horizontal safe area, or out to the window edge (the Duo's
+  /// compact column, where the canvas runs behind the glass).
+  private var contentLeadingSafe: NSLayoutConstraint?
+  private var contentLeadingEdge: NSLayoutConstraint?
+  private var contentTrailingSafe: NSLayoutConstraint?
+  private var contentTrailingEdge: NSLayoutConstraint?
+  /// Docked keyboard's top in this view, or nil when down.
+  private var keyboardTop: CGFloat?
+  /// Room the tool pill leaves for the Duo column (points, from the column's side).
+  private var pillColumnInset: CGFloat = 0
+  private var pillColumnRight = true
+  private var duoChromeObserver: NSObjectProtocol?
   private let fixture: Bool
   private let fixtureDefaultsName: String?
   private var fixtureNumbers: [UUID: Int] = [:]
@@ -133,6 +159,12 @@ final class BrowserWindowController: UIViewController {
     view.addSubview(strip)
     view.insertSubview(content, belowSubview: strip)
     view.addSubview(bottomBar)
+    rail.translatesAutoresizingMaskIntoConstraints = false
+    rail.isHidden = true
+    titleBar.translatesAutoresizingMaskIntoConstraints = false
+    titleBar.isHidden = true
+    view.addSubview(titleBar)
+    view.addSubview(rail)
     // Compact chrome is built on every device and stays hidden until the scene is compact, so a
     // narrow iPad window can switch to it and back without relaunch.
     do {
@@ -195,26 +227,45 @@ final class BrowserWindowController: UIViewController {
     // controls; the strip insets its own content past them.
     stripHeight = strip.heightAnchor.constraint(equalToConstant: BrowserChromeView.height)
     let barGuide = view.layoutGuide(for: .safeArea(cornerAdaptation: .horizontal))
+    stripSafeTop = strip.topAnchor.constraint(equalTo: barGuide.topAnchor)
+    stripStatusTop = strip.topAnchor.constraint(equalTo: view.topAnchor)
+    stripCollapsed = strip.heightAnchor.constraint(equalToConstant: 0)
+    stripColumnTop = strip.topAnchor.constraint(
+      equalTo: view.topAnchor, constant: Self.columnTitleBarTop)
+    stripColumnHeight = strip.heightAnchor.constraint(
+      equalToConstant: Self.columnTitleBarHeight)
+    let phone = PhoneExperiencePolicy.isPhone
+    contentLeadingSafe = content.leadingAnchor.constraint(
+      equalTo: phone ? view.safeAreaLayoutGuide.leadingAnchor : view.leadingAnchor)
+    contentLeadingEdge = content.leadingAnchor.constraint(equalTo: view.leadingAnchor)
+    contentTrailingSafe = content.trailingAnchor.constraint(
+      equalTo: phone ? view.safeAreaLayoutGuide.trailingAnchor : view.trailingAnchor)
+    contentTrailingEdge = content.trailingAnchor.constraint(equalTo: view.trailingAnchor)
     NSLayoutConstraint.activate([
-      strip.topAnchor.constraint(equalTo: barGuide.topAnchor),
+      rail.topAnchor.constraint(equalTo: view.topAnchor),
+      rail.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+      rail.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+      rail.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+      titleBar.topAnchor.constraint(equalTo: view.topAnchor),
+      titleBar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+      titleBar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+      titleBar.heightAnchor.constraint(equalToConstant: DuoTitleBar.height),
+      contentLeadingSafe!,
+      contentTrailingSafe!,
+      stripSafeTop!,
       strip.leadingAnchor.constraint(equalTo: view.leadingAnchor),
       strip.trailingAnchor.constraint(equalTo: view.trailingAnchor),
       stripHeight!,
       bottomBar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
       bottomBar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
       bottomBar.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-      content.leadingAnchor.constraint(
-        equalTo: PhoneExperiencePolicy.isPhone
-          ? view.safeAreaLayoutGuide.leadingAnchor : view.leadingAnchor),
-      content.trailingAnchor.constraint(
-        equalTo: PhoneExperiencePolicy.isPhone
-          ? view.safeAreaLayoutGuide.trailingAnchor : view.trailingAnchor),
     ])
     strip.onKeepTabsLoaded = { [weak self] count in
       UserDefaults.standard.set(count, forKey: Self.retentionKey)
       self?.enforceTabRetention()
     }
     wire(bottomBar)
+    wireRail()
     // iPhone switches on size classes; iPad on window width, checked in viewDidLayoutSubviews.
     // Vertical size class also drives the compact landscape variant.
     registerForTraitChanges([UITraitHorizontalSizeClass.self, UITraitVerticalSizeClass.self]) {
@@ -376,8 +427,9 @@ final class BrowserWindowController: UIViewController {
   private func placeToolPill(animated: Bool) {
     let scale = max(interfaceScale, 0.1)
     let span = Self.pillSpan(
-      contentWidth: content.bounds.width, left: CGFloat(pillPanels.left) * scale,
-      right: CGFloat(pillPanels.right) * scale)
+      contentWidth: content.bounds.width,
+      left: CGFloat(pillPanels.left) * scale + (pillColumnRight ? 0 : pillColumnInset),
+      right: CGFloat(pillPanels.right) * scale + (pillColumnRight ? pillColumnInset : 0))
     guard toolPillCenter?.constant != span.offset || toolPillWidth?.constant != -span.inset
     else { return }
     toolPillCenter?.constant = span.offset
@@ -502,6 +554,212 @@ final class BrowserWindowController: UIViewController {
     sheetHandle.referenceHeight = height
     sheetHandleBottom?.constant = -(height * max(displayedSheetFraction, raisedSheet)).rounded()
     updateToolPillShown()
+    placeWindowChrome()
+  }
+
+  /// iPhone Duo inner display: the top safe area (about 82 pt) is a status row that holds the
+  /// clock, indicators and camera at its trailing end only. Like Safari, the regular strip rises
+  /// into that row, centred `statusRowCentre` from the top, and stops short of the indicators.
+  /// iPad's 24 pt status bar and compact phone layouts (Dynamic Island iPhones) never qualify.
+  private static let statusRowMinimumInset: CGFloat = 60
+  private static let statusRowCentre: CGFloat = 47.5
+  /// Clock, Wi-Fi and camera, plus room for one Live Activity beside the camera.
+  private static let statusRowTrailingReserve: CGFloat = 216
+
+  /// iPhone Duo column layouts, else the top bar and its row. Compact (folded, side by side):
+  /// the Duo top bar, the side column with tools, the page out to the column's edge. Regular
+  /// (unfolded full screen): the iPad strip and bottom bar stay, minus what the column carries.
+  private func placeWindowChrome() {
+    let column = duoColumnPlacement()
+    if column?.side != duoColumn?.side || column?.compact != duoColumn?.compact {
+      duoColumn = column
+      strip.menuDismiss()
+      let compactColumn = column?.compact == true
+      rail.isHidden = column == nil
+      rail.compact = compactColumn
+      titleBar.isHidden = !compactColumn
+      // Under the Duo top bar the strip stays laid out but hidden; ⋯ opens its menu.
+      strip.isHidden = compactColumn
+      NSLayoutConstraint.deactivate(
+        [
+          stripSafeTop, stripStatusTop, stripColumnTop, stripColumnHeight, stripHeight,
+          stripCollapsed, contentLeadingSafe, contentLeadingEdge, contentTrailingSafe,
+          contentTrailingEdge,
+        ]
+        .compactMap { $0 })
+      if let column, column.compact {
+        stripColumnTop?.isActive = true
+        stripColumnHeight?.isActive = true
+        // The canvas runs behind the column, out to the window edge.
+        (column.side == .left ? contentLeadingEdge : contentLeadingSafe)?.isActive = true
+        (column.side == .right ? contentTrailingEdge : contentTrailingSafe)?.isActive = true
+      } else {
+        stripSafeTop?.isActive = true
+        stripHeight?.isActive = true
+        contentLeadingSafe?.isActive = true
+        contentTrailingSafe?.isActive = true
+      }
+      bottomBar.commands =
+        column == nil ? .all : compactColumn ? .none : .withoutHistoryAndClipboard
+      // Folded and side by side the modifiers stay in the bar's one row, Layers and Properties
+      // at its right; Keys is gone.
+      if !compactColumn { bottomBar.keysExpanded = false }
+      bottomBar.keysInRow = compactColumn
+      pillColumnInset = compactColumn ? SideRailView.columnWidth : 0
+      pillColumnRight = column?.side != .left
+      placeToolPill(animated: false)
+      renderDuoChrome(chromeState)
+    }
+    if let column {
+      placeColumn(column)
+      if column.compact {
+        if strip.statusRowReserve != 0 { strip.statusRowReserve = 0 }
+        return
+      }
+    }
+    let safeTop = view.safeAreaInsets.top
+    let inRow = !compactLayout && safeTop >= Self.statusRowMinimumInset
+    let height = stripHeight?.constant ?? BrowserChromeView.height
+    let top = max(0, (Self.statusRowCentre - height / 2).rounded())
+    if stripStatusTop?.constant != top { stripStatusTop?.constant = top }
+    if stripStatusTop?.isActive != inRow {
+      stripSafeTop?.isActive = !inRow
+      stripStatusTop?.isActive = inRow
+    }
+    let reserve = inRow ? Self.statusRowTrailingReserve : 0
+    if strip.statusRowReserve != reserve { strip.statusRowReserve = reserve }
+  }
+
+  /// The hidden strip's frame under the Duo top bar, so the page starts at its 72 pt bottom.
+  private static let columnTitleBarTop: CGFloat = 22
+  private static let columnTitleBarHeight: CGFloat = 50
+
+  /// The system's vertical column (outer display, inner display in landscape, the right of two
+  /// windows side by side) shows up as a wide horizontal safe-area inset. A window beside the
+  /// other one with no column of its own (the left of two) puts its column on its outer edge.
+  /// The inner display in portrait, full width, has none and keeps the top bar.
+  private static let systemColumnMinimumInset: CGFloat = 40
+  /// Safari's status corner on the outer display without Live Activities (measured, simulator
+  /// 2026-11-10); used only when UIKit's bar layout region is unavailable or reports none.
+  private static let statusCornerFallback: CGFloat = 170
+
+  private func duoColumnPlacement() -> (side: SideRailView.Side, compact: Bool)? {
+    guard PhoneExperiencePolicy.usesDuoColumn, view.window != nil else { return nil }
+    let insets = view.safeAreaInsets
+    if insets.right >= Self.systemColumnMinimumInset { return (.right, compactLayout) }
+    if insets.left >= Self.systemColumnMinimumInset { return (.left, compactLayout) }
+    guard let screen = view.window?.windowScene?.screen else { return nil }
+    let frame = view.convert(view.bounds, to: screen.coordinateSpace)
+    guard compactLayout, frame.width < screen.bounds.width - 1 else { return nil }
+    return (frame.minX <= 1 ? .left : .right, true)
+  }
+
+  /// Column ends: under the status corner and the top bar, above the home indicator, the bottom
+  /// bar, an open sheet and the keyboard. Follows each layout pass, so Live Activities that
+  /// stretch the status corner and the keyboard move it. The Duo top bar keeps clear of the
+  /// system column it shares an edge with.
+  private func placeColumn(_ column: (side: SideRailView.Side, compact: Bool)) {
+    let insets = view.safeAreaInsets
+    let system = max(insets.left, insets.right) >= Self.systemColumnMinimumInset
+    // The 27.1 SDK's bar layout region ends below the status corner (170 pt folded, 120 pt
+    // unfolded; simulator 2026-11-11). The corner-adapted safe area does not (about 17 pt).
+    var corner: CGFloat = 0
+    if system {
+      corner = Self.statusCornerFallback
+      #if canImport(UIKit, _version: 9127.0.85)
+        if #available(iOS 27.1, *) {
+          let bar =
+            view.edgeInsets(
+              for: .bar(
+                onEdge: column.side == .right ? UIRectEdge.right : UIRectEdge.left,
+                extent: SideRailView.columnWidth)
+            ).top
+          if bar > 0 { corner = bar }
+        }
+      #endif
+    }
+    let gap = SideRailView.groupGap + SideRailView.control / 2
+    let barBottom = column.compact ? DuoTitleBar.height : strip.frame.maxY
+    rail.side = column.side
+    rail.topCentreLimit = max(
+      system ? corner + SideRailView.statusGap : 0, barBottom + gap)
+    var limit = view.bounds.maxY - max(SideRailView.bottomCentre, insets.bottom + 24)
+    // In the system column the column runs down to the screen's bottom edge, over the bottom
+    // bar's background: the bar keeps its buttons inside the safe area, clear of it.
+    if !bottomBar.isHidden && !system { limit = min(limit, bottomBar.frame.minY - gap) }
+    if !sheetHandle.isHidden { limit = min(limit, sheetHandle.frame.minY - gap) }
+    if let keyboardTop { limit = min(limit, keyboardTop - gap) }
+    // The number key row floats above the keyboard, across the column.
+    if !keyRow.isHidden { limit = min(limit, keyRow.frame.minY - gap) }
+    rail.bottomCentreLimit = limit
+    let edge: CGFloat = 18
+    titleBar.insets = (
+      insets.left >= Self.systemColumnMinimumInset ? insets.left + 6 : edge,
+      insets.right >= Self.systemColumnMinimumInset ? insets.right + 6 : edge
+    )
+    let report =
+      "side=\(column.side) compact=\(column.compact) system=\(system) insets=\(Int(insets.left)),\(Int(insets.top)),\(Int(insets.right)),\(Int(insets.bottom)) corner=\(Int(corner))"
+    if report != duoColumnReport {
+      duoColumnReport = report
+      active?.diagnostics.lifecycle("iPhone Duo column \(report)")
+    }
+  }
+
+  private func wireRail() {
+    titleBar.onHome = { [weak self] in self?.selectHome() }
+    titleBar.onTabs = { [weak self] in self?.showPhoneTabs() }
+    titleBar.onMore = { [weak self] source in self?.strip.toggleMenu(from: source, beside: false) }
+    rail.onUndo = { [weak self] in self?.active?.touchShortcutKey("undo", down: nil) }
+    rail.onRedo = { [weak self] in self?.active?.touchShortcutKey("redo", down: nil) }
+    rail.onEdit = { [weak self] action, sender in
+      self?.active?.touchShortcutEdit(action, sender: sender)
+    }
+    rail.toolsMenu = { [weak self] in self?.duoToolsMenu() ?? [] }
+    strip.onRendered = { [weak self] state in self?.renderDuoChrome(state) }
+    duoChromeObserver = NotificationCenter.default.addObserver(
+      forName: PhoneExperiencePolicy.duoChromeChanged, object: nil, queue: .main
+    ) { [weak self] _ in
+      MainActor.assumeIsolated { self?.view.setNeedsLayout() }
+    }
+  }
+
+  /// The side column's tools menu: the bottom bar's other commands.
+  private func duoToolsMenu() -> [UIMenuElement] {
+    let key = { [weak self] (name: String) in self?.active?.touchShortcutKey(name, down: nil) }
+    let edit = { [weak self] (action: ShortcutEditAction) in
+      guard let self else { return }
+      self.active?.touchShortcutEdit(action, sender: self.rail)
+    }
+    func item(_ title: String, _ icon: String, _ run: @escaping () -> Void) -> UIAction {
+      UIAction(title: title, image: SideRailView.image(icon)) { _ in run() }
+    }
+    return [
+      UIMenu(
+        options: .displayInline,
+        children: [
+          item("Duplicate", "plus.square.on.square") { key("duplicate") },
+          item("Select All", ToolbarIcon.selectAll) { edit(.selectAll) },
+        ]),
+      UIMenu(
+        options: .displayInline,
+        children: [
+          item("Group Selection", ToolbarIcon.group) { key("group") },
+          item("Ungroup Selection", ToolbarIcon.ungroup) { key("ungroup") },
+          item("Frame Selection", ToolbarIcon.frame) { key("frameSelection") },
+        ]),
+    ]
+  }
+
+  private func renderDuoChrome(_ state: B3BrowserChromeState) {
+    guard let duoColumn else { return }
+    let selected = state.tabs.first { $0.id == state.selectedID } ?? state.home
+    let home = state.selectedID == state.home.id
+    rail.isHidden = home
+    if duoColumn.compact {
+      titleBar.update(
+        title: selected.home ? "Home" : selected.title ?? "Loading…", homeSelected: home,
+        documentCount: state.tabs.count - 1, loading: state.loading)
+    }
   }
 
   /// Keep one request in flight. Native controls follow the sample applied by WebKit,
@@ -543,6 +801,14 @@ final class BrowserWindowController: UIViewController {
   private func keyboardWillMove(to frame: CGRect?) {
     guard isViewLoaded, let screen = view.window?.windowScene?.screen else { return }
     var overlap: CGFloat = 0
+    let top = frame.flatMap {
+      $0.isEmpty ? nil : view.convert($0, from: screen.coordinateSpace).minY
+    }
+    let docked = top.flatMap { $0 < view.bounds.maxY - 1 ? $0 : nil }
+    if docked != keyboardTop {
+      keyboardTop = docked
+      if duoColumn != nil { view.setNeedsLayout() }
+    }
     if let frame, !frame.isEmpty {
       // The content bottom without the keyboard: the bar's top, or the view's bottom.
       let bottom = bottomBar.isHidden ? view.bounds.maxY : bottomBar.frame.minY
@@ -583,9 +849,12 @@ final class BrowserWindowController: UIViewController {
   }
 
   private func updateKeyRow() {
-    keyRow.setShown(
+    let shown =
       fieldNumeric && keyboardOverlap > 0 && compactLayout
-        && active?.phoneNumberKeyboard == true)
+      && active?.phoneNumberKeyboard == true
+    // The Duo column rests on the key row; place it again when the row comes or goes.
+    if shown == keyRow.isHidden, duoColumn != nil { view.setNeedsLayout() }
+    keyRow.setShown(shown)
   }
 
   private func togglePhonePanel(_ side: String) {
