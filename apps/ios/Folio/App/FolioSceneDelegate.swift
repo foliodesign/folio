@@ -80,8 +80,8 @@ enum FolioWindows {
   }
 
   static func newWindow(from scene: UIWindowScene?, transfer: TabTransfer? = nil) {
-    // iPhone has one window; window commands are hidden there.
-    guard PhoneExperiencePolicy.supportsMultipleWindows else { return }
+    // Regular iPhones have one window; window commands are hidden there.
+    guard UIApplication.shared.supportsMultipleScenes else { return }
     let options = UIScene.ActivationRequestOptions()
     options.requestingScene = scene
     UIApplication.shared.requestSceneSessionActivation(

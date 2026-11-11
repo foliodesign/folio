@@ -342,7 +342,7 @@ final class BrowserChromeView: UIView, UIDragInteractionDelegate, UIDropInteract
       guard let self else { return nil }
       let pinned = view?.isPinned ?? false
       let move: [UIMenuElement] =
-        PhoneExperiencePolicy.supportsMultipleWindows
+        PhoneExperiencePolicy.supportsMultipleWindows(on: self.window?.windowScene?.screen)
         ? [
           UIAction(
             title: "Move to New Window", image: UIImage(systemName: "rectangle.on.rectangle")
@@ -516,7 +516,7 @@ final class BrowserChromeView: UIView, UIDragInteractionDelegate, UIDropInteract
     guard let session = lastSession else { return [] }
     let onHome = session.selectedID == session.home.id
     var items: [ChromeMenuItem] =
-      PhoneExperiencePolicy.supportsMultipleWindows
+      PhoneExperiencePolicy.supportsMultipleWindows(on: self.window?.windowScene?.screen)
       ? [
         ChromeMenuItem(title: "New window", hint: "⌃⌘N") { [weak self] in self?.onNewWindow?() },
         .separator,

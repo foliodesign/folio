@@ -1326,7 +1326,9 @@ final class BrowserWindowController: UIViewController {
   }
   @objc private func reopenTabCommand() { if readyForFolioCommand { reopenClosedTab() } }
   @objc private func newWindowCommand() {
-    guard readyForFolioCommand else { return }
+    guard readyForFolioCommand,
+      PhoneExperiencePolicy.supportsMultipleWindows(on: view.window?.windowScene?.screen)
+    else { return }
     FolioWindows.newWindow(from: view.window?.windowScene)
   }
   @objc private func homeCommand() { if readyForFolioCommand { selectHome() } }
