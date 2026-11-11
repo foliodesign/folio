@@ -2,8 +2,14 @@ import UIKit
 import WebKit
 
 /// An opener-related child using WebKit's supplied configuration, with no Folio injection.
+/// Shown as a sheet over its tab (maintainer, 2026-11-11: like the system's sign-in sheets):
+/// Close at the leading edge, the site's host in the middle; a swipe down closes it too. A
+/// child that went through Figma's sign-in closes itself once it lands back on Figma's file
+/// browser, as Figma's own Add account tab does in Safari.
 @MainActor
-final class PopupController: UIViewController, WKNavigationDelegate, WKUIDelegate {
+final class PopupController: UIViewController, WKNavigationDelegate, WKUIDelegate,
+  UIAdaptivePresentationControllerDelegate
+{
   private(set) var browser: WKWebView?
   private(set) var message: String?
   var onOwnershipTransition: (() -> Void)?
@@ -16,13 +22,17 @@ final class PopupController: UIViewController, WKNavigationDelegate, WKUIDelegat
   private var mayPromote: Bool
   var onClose: (() -> Void)?
   private let host = UILabel()
+  private let header = UIView()
   private let notice = UILabel()
+  /// The main frame has shown a Figma sign-in page (login, sign-up, SSO).
+  private var sawSignIn = false
+  private var closed = false
   private let localURLs: [URL]
   private let documentOnly: Bool
 
   init(
     configuration: WKWebViewConfiguration, url: URL?, localURLs: [URL] = [],
-    documentOnly: Bool = false
+    documentOnly: Bool = false, signInRules: WKContentRuleList? = nil
   ) {
     self.localURLs = localURLs
     self.documentOnly = documentOnly
@@ -30,6 +40,8 @@ final class PopupController: UIViewController, WKNavigationDelegate, WKUIDelegat
     super.init(nibName: nil, bundle: nil)
     // Do not remove handlers/scripts from the inherited controller: it may be the parent's.
     configuration.userContentController = WKUserContentController()
+    // CSS hiding only (Google button, "or" line on Figma's sign-in pages); still no script.
+    if let signInRules { configuration.userContentController.add(signInRules) }
     // Preserve the child baseline: no automatic windows and no inherited Folio scripts.
     configuration.preferences = WKPreferences()
     browser = WKWebView(frame: .zero, configuration: configuration)
@@ -45,14 +57,38 @@ final class PopupController: UIViewController, WKNavigationDelegate, WKUIDelegat
     view.accessibilityViewIsModal = true
     view.backgroundColor = .systemBackground
     host.font = .preferredFont(forTextStyle: .headline)
+    host.textAlignment = .center
+    host.lineBreakMode = .byTruncatingMiddle
     host.accessibilityIdentifier = "popupHost"
     let close = UIButton(type: .system)
-    close.setTitle("Close window", for: .normal)
+    close.setTitle("Close", for: .normal)
+    close.titleLabel?.font = .preferredFont(forTextStyle: .body)
+    close.accessibilityIdentifier = "popupClose"
     close.addAction(UIAction { [weak self] _ in self?.close() }, for: .touchUpInside)
-    let header = UIStackView(arrangedSubviews: [host, close])
-    header.spacing = 16
+    for item in [host, close] as [UIView] {
+      item.translatesAutoresizingMaskIntoConstraints = false
+      header.addSubview(item)
+    }
+    let divider = UIView()
+    divider.backgroundColor = .separator
+    divider.translatesAutoresizingMaskIntoConstraints = false
+    header.addSubview(divider)
     header.translatesAutoresizingMaskIntoConstraints = false
     view.addSubview(header)
+    let scale = max(1, traitCollection.displayScale)
+    NSLayoutConstraint.activate([
+      header.heightAnchor.constraint(equalToConstant: 52),
+      close.leadingAnchor.constraint(equalTo: header.leadingAnchor),
+      close.centerYAnchor.constraint(equalTo: header.centerYAnchor),
+      host.centerXAnchor.constraint(equalTo: header.centerXAnchor),
+      host.centerYAnchor.constraint(equalTo: header.centerYAnchor),
+      host.leadingAnchor.constraint(greaterThanOrEqualTo: close.trailingAnchor, constant: 12),
+      host.trailingAnchor.constraint(lessThanOrEqualTo: header.trailingAnchor),
+      divider.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+      divider.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+      divider.bottomAnchor.constraint(equalTo: header.bottomAnchor),
+      divider.heightAnchor.constraint(equalToConstant: 1 / scale),
+    ])
     notice.numberOfLines = 0
     notice.font = .preferredFont(forTextStyle: .body)
     notice.accessibilityIdentifier = "popupNotice"
@@ -60,7 +96,7 @@ final class PopupController: UIViewController, WKNavigationDelegate, WKUIDelegat
     notice.isHidden = true
     view.addSubview(notice)
     NSLayoutConstraint.activate([
-      header.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 12),
+      header.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
       header.leadingAnchor.constraint(
         equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 20),
       header.trailingAnchor.constraint(
@@ -73,7 +109,7 @@ final class PopupController: UIViewController, WKNavigationDelegate, WKUIDelegat
       browser.translatesAutoresizingMaskIntoConstraints = false
       view.insertSubview(browser, belowSubview: notice)
       NSLayoutConstraint.activate([
-        browser.topAnchor.constraint(equalTo: header.bottomAnchor, constant: 12),
+        browser.topAnchor.constraint(equalTo: header.bottomAnchor),
         browser.bottomAnchor.constraint(equalTo: view.bottomAnchor),
         browser.leadingAnchor.constraint(equalTo: view.leadingAnchor),
         browser.trailingAnchor.constraint(equalTo: view.trailingAnchor),
@@ -99,14 +135,34 @@ final class PopupController: UIViewController, WKNavigationDelegate, WKUIDelegat
     browser = nil
   }
 
-  func close() {
+  /// Releases the child and takes the sheet down (`animated` false when the tab itself goes).
+  func close(animated: Bool = true) {
+    guard !closed else { return }
+    closed = true
     releaseBrowser()
-    willMove(toParent: nil)
-    viewIfLoaded?.removeFromSuperview()
-    removeFromParent()
+    if presentingViewController != nil, !isBeingDismissed {
+      presentingViewController?.dismiss(animated: animated)
+    }
     let callback = onClose
     onClose = nil
     callback?()
+  }
+
+  /// A swipe down closed the sheet: release the child as Close does.
+  func presentationControllerDidDismiss(_ presentationController: UIPresentationController) {
+    close(animated: false)
+  }
+
+  func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+    guard webView === browser, let url = webView.url else { return }
+    switch TabNavigationRouter.classify(url) {
+    case .auth: sawSignIn = true
+    // Signed in: Figma heads back to its file browser. Its opener already shows the account.
+    case .dashboard where sawSignIn:
+      onRouteEvidence?(.signInFinished, url)
+      close()
+    default: break
+    }
   }
 
   func webViewDidClose(_ webView: WKWebView) {
@@ -189,7 +245,7 @@ final class PopupController: UIViewController, WKNavigationDelegate, WKUIDelegat
       loadViewIfNeeded()
       view.insertSubview(webView, belowSubview: notice)
       NSLayoutConstraint.activate([
-        webView.topAnchor.constraint(equalTo: host.bottomAnchor, constant: 12),
+        webView.topAnchor.constraint(equalTo: header.bottomAnchor),
         webView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
         webView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
         webView.trailingAnchor.constraint(equalTo: view.trailingAnchor),

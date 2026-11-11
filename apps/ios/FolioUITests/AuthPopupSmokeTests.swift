@@ -19,7 +19,7 @@ final class AuthPopupSmokeTests: XCTestCase {
       }
       XCTAssertTrue(
         app.staticTexts["PASS: opener acknowledgement received"].waitForExistence(timeout: 10))
-      XCTAssertTrue(app.buttons["Close window"].isHittable)
+      XCTAssertTrue(app.buttons["Close"].isHittable)
       XCTAssertEqual(app.staticTexts["popupHost"].label, "Local test page")
       let before = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
       before.name = "popup-before-tap"
@@ -40,14 +40,14 @@ final class AuthPopupSmokeTests: XCTestCase {
       popup.lifetime = .keepAlways
       add(popup)
       if linked {
-        app.buttons["Close window"].tap()
+        app.buttons["Close"].tap()
       } else {
         app.buttons["Close from page"].coordinate(
           withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)
         ).tap()
       }
       XCTAssertTrue(app.buttons["Open blank popup"].waitForExistence(timeout: 5))
-      XCTAssertFalse(app.buttons["Close window"].exists)
+      XCTAssertFalse(app.buttons["Close"].exists)
       app.buttons["Open diagnostics"].tap()
       let report = app.textViews["diagnosticsReport"].value as? String ?? ""
       XCTAssertTrue(report.contains("Native keyboard popup-closed"))
@@ -60,13 +60,13 @@ final class AuthPopupSmokeTests: XCTestCase {
     app.links["Open blocked Google popup"].tap()
     XCTAssertTrue(app.staticTexts["popupNotice"].waitForExistence(timeout: 5))
     XCTAssertTrue(app.staticTexts["popupNotice"].label.contains("Google sign-in cannot run"))
-    XCTAssertTrue(app.buttons["Close window"].isHittable)
+    XCTAssertTrue(app.buttons["Close"].isHittable)
     XCTAssertFalse(app.staticTexts["Popup fixture"].exists)
     let blocked = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
     blocked.name = "google-policy-message"
     blocked.lifetime = .keepAlways
     add(blocked)
-    app.buttons["Close window"].tap()
+    app.buttons["Close"].tap()
     XCTAssertTrue(app.buttons["Open blank popup"].waitForExistence(timeout: 5))
     let parent = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
     parent.name = "parent-opener-result"

@@ -15,6 +15,9 @@ import {
 //   standard ⇧⌘\ chord when the button is not found), which gives the canvas the whole view;
 // - shows one panel as a bottom sheet; the wide layout keeps Figma expanded even when
 //   sheets are closed, so sheet toggles never resize the renderer;
+// - hides Figma's Minimize UI button (maintainer, 2026-11-11: Folio's own Layers and Properties
+//   buttons place the panels; the button stays in the DOM, so Folio's own click still reaches
+//   it);
 // - hides Figma's navigation rail and floating tool bar (kept in the DOM) and reports the active
 //   tool and the Design/Dev Mode state to native as fixed ids, so Folio's pill can show them.
 // - "Canvas beside panels" (experimental, 2026-10-12): while the layout is active Figma stays
@@ -558,7 +561,8 @@ if (runtime && !runtime.setPhoneLayout) {
     // The tool bar stays laid out and in the DOM so its pressed state stays readable.
     let text =
       `${sel("tools")},${sel("tools")} *{visibility:hidden!important;pointer-events:none!important}` +
-      `${sel("rail")}{display:none!important}`;
+      `${sel("rail")}{display:none!important}` +
+      `${selectors.minimize.join(",")}{display:none!important}`;
     // Side panels stay as Figma lays them out; closed sides are off-screen natively.
     const hidden = sidesOn()
       ? []

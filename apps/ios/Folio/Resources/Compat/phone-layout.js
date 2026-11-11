@@ -492,7 +492,7 @@
       if (sheetDrag && (sidesOn() || panel === "none" || found.get(panel) !== sheetDrag.element))
         stopSheetDrag();
       const sel = (role) => `[${attribute}="${role}"]`;
-      let text = `${sel("tools")},${sel("tools")} *{visibility:hidden!important;pointer-events:none!important}${sel("rail")}{display:none!important}`;
+      let text = `${sel("tools")},${sel("tools")} *{visibility:hidden!important;pointer-events:none!important}${sel("rail")}{display:none!important}${selectors.minimize.join(",")}{display:none!important}`;
       const hidden = sidesOn() ? [] : ["left", "right"].filter((r) => r !== panel);
       if (hidden.length)
         text += `${hidden.map(sel).join(",")}{display:none!important}`;

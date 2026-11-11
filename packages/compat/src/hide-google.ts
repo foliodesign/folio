@@ -3,6 +3,7 @@ import "./bridge";
 // Maintainer exception (2026-10-09): Google blocks OAuth in embedded WebKit, so Folio hides
 // Figma's "Continue with Google" control on its own login/sign-up pages. Presentation only:
 // no Figma script, request, input or form is touched; nothing matches, nothing happens.
+// The "or" divider next to it goes too unless sign-in options remain on both of its sides.
 const runtime = globalThis.__folio;
 if (runtime && !runtime.setHideGoogle) {
   let enabled = false;
@@ -65,8 +66,14 @@ if (runtime && !runtime.setHideGoogle) {
       const sibling = adjacent(target, dir);
       if (!(sibling instanceof HTMLElement) || !isDivider(sibling)) continue;
       // Check both complete sides in the divider's own container, including
-      // other visible options inside target's wrapper.
-      if (!adjacent(sibling, "previous") || !adjacent(sibling, "next"))
+      // other visible options inside target's wrapper. An "or" stands between two
+      // options: a heading or plain text on one side does not count (maintainer,
+      // 2026-11-11: Figma's login heading kept it visible above the email form).
+      const option = (el: Element | null) => !!el && hasControls(el);
+      if (
+        !option(adjacent(sibling, "previous")) ||
+        !option(adjacent(sibling, "next"))
+      )
         hide(sibling);
     }
   };
