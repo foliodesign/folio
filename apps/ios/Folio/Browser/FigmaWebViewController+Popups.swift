@@ -51,6 +51,7 @@ extension FigmaWebViewController {
       self?.recordKeyboardProbe(phase: "popup-closed")
       if self?.closingPopupForLifecycle == false { self?.restoreBrowserFocus(reason: .popupClosed) }
     }
+    child.onSignInFinished = { [weak self] in self?.reloadAfterSignIn() }
     child.onOwnershipTransition = { [weak self] in self?.recordKeyboardProbe(phase: "popup-message")
     }
     popup = child
@@ -69,6 +70,15 @@ extension FigmaWebViewController {
     // WebKit, not Folio, loads the initial request in this returned related web view.
     if PopupPolicy.isGoogleOAuth(url) { child.showMessage(PopupPolicy.googleMessage) }
     return child.browser
+  }
+
+  /// A sign-in in the sheet (Add account) finished: the opener's Figma file browser still lists
+  /// the old accounts, so reload it (maintainer, 2026-11-11). Files are never reloaded.
+  func reloadAfterSignIn() {
+    guard let browser = webView, let url = browser.url,
+      case .dashboard = TabNavigationRouter.classify(url)
+    else { return }
+    browser.reload()
   }
 
   func closePopup() {
