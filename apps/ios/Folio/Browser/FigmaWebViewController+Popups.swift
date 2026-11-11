@@ -28,7 +28,9 @@ extension FigmaWebViewController {
     #endif
     let child = PopupController(
       configuration: configuration, url: url, localURLs: authLocalURLs,
-      documentOnly: documentOnly)
+      documentOnly: documentOnly,
+      signInRules: session.mode != .safe && diagnostics.strategies.hideGoogle
+        ? SignInRules.list : nil)
     #if DEBUG
       child.offlinePromotion = fixtureNumber != nil
     #endif
@@ -55,18 +57,14 @@ extension FigmaWebViewController {
     // Esc closes the sign-in popup like its Close button.
     FolioEscape.register(child) { [weak child] in child?.close() }
     webView.accessibilityElementsHidden = true
-    addChild(child)
-    child.view.translatesAutoresizingMaskIntoConstraints = false
-    view.addSubview(child.view)
-    NSLayoutConstraint.activate([
-      child.view.topAnchor.constraint(equalTo: view.topAnchor),
-      child.view.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-      child.view.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-      child.view.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-    ])
-    child.didMove(toParent: self)
-    view.layoutIfNeeded()
-    child.browser?.becomeFirstResponder()
+    // A sheet over the tab, like the system's sign-in sheets: centred on iPad, from the bottom
+    // on iPhone.
+    let regular = traitCollection.horizontalSizeClass == .regular
+    child.modalPresentationStyle = regular ? .formSheet : .pageSheet
+    if regular { child.preferredContentSize = CGSize(width: 600, height: 780) }
+    child.sheetPresentationController?.prefersGrabberVisible = !regular
+    child.presentationController?.delegate = child
+    present(child, animated: true) { [weak child] in child?.browser?.becomeFirstResponder() }
     recordKeyboardProbe(phase: "popup-opened")
     // WebKit, not Folio, loads the initial request in this returned related web view.
     if PopupPolicy.isGoogleOAuth(url) { child.showMessage(PopupPolicy.googleMessage) }
@@ -75,7 +73,7 @@ extension FigmaWebViewController {
 
   func closePopup() {
     closingPopupForLifecycle = true
-    popup?.close()
+    popup?.close(animated: false)
     closingPopupForLifecycle = false
   }
 

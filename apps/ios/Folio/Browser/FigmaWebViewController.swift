@@ -218,6 +218,7 @@ final class FigmaWebViewController: UIViewController, WKNavigationDelegate, WKUI
   override func viewDidLoad() {
     super.viewDidLoad()
     view.backgroundColor = .systemBackground
+    SignInRules.prepare()
     // Esc on a bundled lab page returns this tab to Figma.
     FolioEscape.register(
       self, when: { [weak self] in self?.diagnostics.activeLab != nil },

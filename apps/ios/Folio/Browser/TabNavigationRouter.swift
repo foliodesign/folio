@@ -61,6 +61,7 @@ enum TabNavigationRouter {
     case trustedAnchor, navigationAction, nilTargetChild, blankPromotion, observedURL, redirect
     case homeHandoff, homeRestore, documentDashboard, handoffSuppressed
     case automaticChildRejected
+    case signInFinished
     case dashboardReloadRejected
   }
 

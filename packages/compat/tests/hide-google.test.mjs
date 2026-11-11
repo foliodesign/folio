@@ -143,6 +143,23 @@ test("hides only the Google control and its orphaned divider, then restores", ()
   assert.equal(h.tree.or.hiddenNow, false);
 });
 
+test("hides the divider when only a heading remains above it", () => {
+  const h = harness("/login", () => {
+    const heading = new El("h2", "Log in to your account");
+    const google = new El("button", "Continue with Google");
+    const or = new El("p", "or");
+    const email = new El("form", "", new El("input"));
+    const wrap = new El("div", "", heading, google, or, email);
+    return { heading, google, or, email, wrap, all: [google] };
+  });
+  h.context.__folio.setHideGoogle(true);
+  h.run();
+  assert.equal(h.tree.google.hiddenNow, true);
+  assert.equal(h.tree.or.hiddenNow, true);
+  assert.equal(h.tree.heading.hiddenNow, false);
+  assert.equal(h.tree.email.hiddenNow, false);
+});
+
 test("keeps the divider when another option remains on both sides", () => {
   const h = harness("/signup", () => {
     const apple = new El("button", "Continue with Apple");

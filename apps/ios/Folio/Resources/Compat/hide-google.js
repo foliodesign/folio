@@ -77,7 +77,8 @@
       for (const dir of ["previous", "next"]) {
         const sibling = adjacent(target, dir);
         if (!(sibling instanceof HTMLElement) || !isDivider(sibling)) continue;
-        if (!adjacent(sibling, "previous") || !adjacent(sibling, "next"))
+        const option = (el) => !!el && hasControls(el);
+        if (!option(adjacent(sibling, "previous")) || !option(adjacent(sibling, "next")))
           hide(sibling);
       }
     };
