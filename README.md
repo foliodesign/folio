@@ -19,7 +19,7 @@
 Folio is a free, native app for iPad and iPhone that runs Figma's own web editor and adds what a browser tab can't. Your account, your files, nothing in between. It doesn't reimplement or modify Figma; it adapts touch, Pencil and keyboard input to standard browser behaviour.
 
 > [!NOTE]
-> Folio 1.0 is [on the App Store](https://apps.apple.com/app/id6828007211) for iPad. iPhone and iPhone Duo support is coming soon.
+> Folio is [on the App Store](https://apps.apple.com/app/id6828007211) for iPad, iPhone and iPhone Duo. iPhone support, new in 1.1, is in Beta.
 
 ## Features
 
@@ -29,12 +29,12 @@ Folio is a free, native app for iPad and iPhone that runs Figma's own web editor
 - **Bottom toolbar**: Shift, Control, Option and Command keys, flick arrows, and Undo, Redo, Copy, Paste and more.
 - **Interface zoom**: scale Figma's panels and Folio's chrome from 50% to 200%.
 - **Downloads and exports**: a Download Center, Save to Files, Share, and exports straight to Photos.
-- **iPhone and iPhone Duo (coming soon)**: Layers and Properties a tap away in a sheet or side panels, Keys and Tools rows, and a number keyboard. Folded, the Duo is a phone; unfolded, it gets the iPad layout.
+- **iPhone and iPhone Duo (Beta)**: Layers and Properties a tap away in a sheet or side panels, Keys and Tools rows, and a number keyboard. Folded, the Duo is a phone; unfolded, it gets the iPad layout.
 - **Stays up**: unloads background tabs under memory pressure, recovers from crashes, and has a Safe mode.
 
 ## Requirements
 
-- iPad with iPadOS 26 or later, or iPhone with iOS 26 or later (coming soon).
+- iPad with iPadOS 26 or later, or iPhone with iOS 26 or later.
 - An internet connection and a Figma account. Sign in with email and password or SSO; Google sign-in doesn't work in embedded browsers.
 - Optional: Apple Pencil, trackpad or mouse, and a hardware keyboard.
 
