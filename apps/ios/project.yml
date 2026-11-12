@@ -5,15 +5,14 @@ options:
 settings:
   base:
     SWIFT_VERSION: '6.0'
-    # Daily Debug builds stay universal. release-archive.sh explicitly selects
-    # iPad-only App Store or universal TestFlight distribution.
+    # Universal (iPhone and iPad) since 1.1, for daily builds and both release channels.
     # Phone code is idiom-gated (Folio/App/PhoneExperiencePolicy.swift) and inert on iPad.
     TARGETED_DEVICE_FAMILY: '1,2'
     CODE_SIGN_STYLE: Automatic
     SWIFT_STRICT_CONCURRENCY: complete
     GENERATE_INFOPLIST_FILE: YES
-    MARKETING_VERSION: '1.0.0'
-    CURRENT_PROJECT_VERSION: '1'
+    MARKETING_VERSION: '1.1.0'
+    CURRENT_PROJECT_VERSION: '2'
 targets:
   Folio:
     type: application

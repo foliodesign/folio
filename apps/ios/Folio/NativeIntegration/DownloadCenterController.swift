@@ -199,7 +199,8 @@ final class DownloadCenterController: UIViewController, UITableViewDataSource,
     body.font = Style.font(11)
     body.textColor = Palette.secondary
     let note = UILabel()
-    note.text = "Folio keeps the latest 32 exports, up to 128 MB, on this iPad."
+    note.text =
+      "Folio keeps the latest 32 exports, up to 128 MB, on this \(UIDevice.current.model)."
     note.font = Style.font(11)
     note.textColor = Palette.tertiary
     for label in [body, note] {

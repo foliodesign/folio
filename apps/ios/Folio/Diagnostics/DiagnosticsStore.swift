@@ -71,7 +71,8 @@ final class DiagnosticsStore {
     let gib = { (bytes: UInt64) in String(format: "%.1f GB", Double(bytes) / 1_073_741_824) }
     let page = activeLab?.title ?? Privacy.redactedURL(currentURL)
     return [
-      ("Device", identifier), ("iPadOS", UIDevice.current.systemVersion), ("WebKit", webkit),
+      ("Device", identifier), (UIDevice.current.systemName, UIDevice.current.systemVersion),
+      ("WebKit", webkit),
       ("Memory", gib(ProcessInfo.processInfo.physicalMemory)),
       ("Available to Folio", gib(availableMemory)),
       ("Folio", DeveloperToolsController.version), ("Compat scripts", Self.compatVersion),
@@ -138,7 +139,7 @@ final class DiagnosticsStore {
       "Window: \(windowID?.uuidString ?? "standalone"); tab: \(tabID?.uuidString ?? "standalone")",
       "Device identifier: \(identifier)",
       "Simulator model: \(ProcessInfo.processInfo.environment["SIMULATOR_MODEL_IDENTIFIER"] ?? "not simulator")",
-      "iPadOS: \(UIDevice.current.systemVersion)", "WebKit: \(webkit)",
+      "\(UIDevice.current.systemName): \(UIDevice.current.systemVersion)", "WebKit: \(webkit)",
       "Screen: \(screenDescription)",
       "RAM: \(ProcessInfo.processInfo.physicalMemory) bytes", "Mode: \(session.mode.rawValue)",
       "Compat version: \(Self.compatVersion)\(session.mode == .safe ? " (disabled)" : "")",

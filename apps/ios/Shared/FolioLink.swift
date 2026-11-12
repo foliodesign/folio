@@ -1,7 +1,7 @@
 import Foundation
 
 enum PublicSite {
-  static let baseURL = URL(string: "https://foliodesign.app")!
+  static let baseURL = URL(string: "https://folio.design")!
   static let supportURL = baseURL.appendingPathComponent("support")
   static let privacyURL = baseURL.appendingPathComponent("privacy")
   static let termsURL = baseURL.appendingPathComponent("terms")

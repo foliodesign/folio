@@ -39,7 +39,7 @@ final class DeveloperToolsController: UIViewController, UIAdaptivePresentationCo
       switch self {
       case .general: "What opens when you launch Folio, and how tabs use memory."
       case .fonts: "Manage original font files imported into Folio."
-      case .about: "An independent iPad client for Figma Design."
+      case .about: "An independent client for Figma Design."
       case .overview:
         "This device, this build and the current page. Attach the report to bug notes."
       case .input:
@@ -49,7 +49,7 @@ final class DeveloperToolsController: UIViewController, UIAdaptivePresentationCo
       case .logs:
         "Input, keyboard and focus events, kept in memory only (latest 500 general + 2000 UI drag). Nothing is written to disk or the system log."
       case .labs:
-        "Bundled test pages for checking input on this iPad. A test page replaces this tab's page until you return to Figma."
+        "Bundled test pages for checking input on this device. A test page replaces this tab's page until you return to Figma."
       case .experimental:
         "Alternative input methods for troubleshooting. All are off by default; turn one on only if Support asks you to, then turn it off again."
       }
@@ -536,7 +536,7 @@ final class DeveloperToolsController: UIViewController, UIAdaptivePresentationCo
       (.normal, "Everything on: input adaptations, Folio's page scripts and native integration."),
       (
         .compatibility,
-        "Same adaptations with a desktop-like page setup. Use when Figma misdetects the iPad."
+        "Same adaptations with a desktop-like page setup. Use when Figma misdetects the device."
       ),
       (
         .safe,
@@ -701,7 +701,7 @@ final class DeveloperToolsController: UIViewController, UIAdaptivePresentationCo
         [
           toggleRow(
             "Local fonts (experimental)",
-            "Blocked on iPad: Figma can't currently reach this loopback font service (WebKit blocks HTTP loopback; Figma's HTTPS route needs its own certificate). Kept for diagnostics only. Use Figma's font upload. See docs/research/local-fonts.md.",
+            "Blocked on this device: Figma can't currently reach this loopback font service (WebKit blocks HTTP loopback; Figma's HTTPS route needs its own certificate). Kept for diagnostics only. Use Figma's font upload. See docs/research/local-fonts.md.",
             LocalFontService.shared.enabled, ignoresSafe: true
           ) { LocalFontService.shared.enabled = $0 },
           toggleRow(
@@ -727,7 +727,7 @@ final class DeveloperToolsController: UIViewController, UIAdaptivePresentationCo
         ) { strategies.pencil = PencilStrategy.allCases[$0] },
         toggleRow(
           "Pencil drags don't move objects",
-          "Turn on if dragging with Apple Pencil doesn't move objects on this iPad, so the Pencil strategy above can compensate. Resets when Folio restarts.",
+          "Turn on if dragging with Apple Pencil doesn't move objects on this device, so the Pencil strategy above can compensate. Resets when Folio restarts.",
           strategies.penDragUnusable
         ) { strategies.penDragUnusable = $0 },
       ])

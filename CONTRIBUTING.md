@@ -15,7 +15,7 @@ Bug reports and feature ideas are welcome as [issues](../../issues/new/choose).
 - Use a design you own. Never post private Figma links, client designs, account details, credentials or device identifiers.
 - Suspected security problem? Don't open an issue. Follow [SECURITY.md](SECURITY.md).
 
-For help using the app, see the [user guides](https://foliodesign.app/getting-started) or email [support@foliodesign.app](mailto:support@foliodesign.app).
+For help using the app, see the [user guides](https://folio.design/getting-started) or email [support@foliodesign.app](mailto:support@foliodesign.app).
 
 ## Forks
 

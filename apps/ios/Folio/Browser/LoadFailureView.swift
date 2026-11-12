@@ -30,7 +30,7 @@ final class LoadFailureView: UIView {
       return Message(
         title: "Couldn't connect securely",
         detail:
-          "A secure connection to the page failed. Check the network and the iPad's date and time, then try again."
+          "A secure connection to the page failed. Check the network and this device's date and time, then try again."
       )
     default:
       return Message(
