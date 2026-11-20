@@ -44,7 +44,7 @@ if (runtime && !runtime.setResizeEdges) {
   line.setAttribute("aria-hidden", "true");
   line.style.cssText =
     "position:fixed;left:0;top:0;width:0;height:0;margin:0;padding:0;border:0;" +
-    "background:#0D99FF;border-radius:1px;pointer-events:none;z-index:2147483647;" +
+    "border-radius:1px;pointer-events:none;z-index:2147483647;" +
     "opacity:0;transition:opacity 150ms ease-out;";
 
   const axisOf = (element: Element): Axis | undefined => {
@@ -172,16 +172,95 @@ if (runtime && !runtime.setResizeEdges) {
     const top = document.elementsFromPoint(x, y).find((el) => el !== line);
     return !top?.closest(OVERLAY);
   };
-  const clear = (x: number, y: number, edge: Edge) => {
+  // The point on the handle's centre line nearest to (x, y).
+  const handleAt = (x: number, y: number, edge: Edge) => {
     const rect = edge.element.getBoundingClientRect();
+    return edge.axis === "x"
+      ? {
+          x: rect.left + rect.width / 2,
+          y: Math.min(Math.max(y, rect.top), rect.bottom),
+        }
+      : {
+          x: Math.min(Math.max(x, rect.left), rect.right),
+          y: rect.top + rect.height / 2,
+        };
+  };
+  const clear = (x: number, y: number, edge: Edge) => {
+    const at = handleAt(x, y, edge);
+    return topmostOk(x, y) && topmostOk(at.x, at.y);
+  };
+  // Maintainer (2026-11-20): something drawn across the handle owns presses on it, so a tap on
+  // Figma's floating toolbar where it crosses a panel edge selects the tool instead of resizing.
+  // Covered means the handle is not on top at its own centre line, and the pressed element shares
+  // an ancestor with what is on top there before reaching an ancestor of the handle.
+  const covered = (target: Element, x: number, y: number, edge: Edge) => {
+    const at = handleAt(x, y, edge);
+    const top = document
+      .elementsFromPoint(at.x, at.y)
+      .find((el) => el !== line);
+    if (!top || edge.element.contains(top) || top.contains(edge.element))
+      return false;
+    for (let el: Element | null = target; el; el = el.parentElement) {
+      if (el.contains(edge.element)) return false;
+      if (el.contains(top)) return true;
+    }
+    return false;
+  };
+
+  // Maintainer (2026-11-20): the line sits on top of the page, so it must not cross what Figma
+  // draws over the edge (its floating toolbar on a narrow screen). Elements on top along the
+  // handle's centre line are sampled every 16 px, at most every 250 ms, and the line is cut out
+  // where their live rects cross it.
+  const LINE = "#0D99FF";
+  let covers: { edge: Edge; elements: Element[]; at: number } | undefined;
+  const coversOf = (edge: Edge, rect: DOMRect, center: number) => {
+    if (covers?.edge === edge && performance.now() - covers.at < 250)
+      return covers.elements;
     const vertical = edge.axis === "x";
-    const hx = vertical
-      ? rect.left + rect.width / 2
-      : Math.min(Math.max(x, rect.left), rect.right);
-    const hy = vertical
-      ? Math.min(Math.max(y, rect.top), rect.bottom)
-      : rect.top + rect.height / 2;
-    return topmostOk(x, y) && topmostOk(hx, hy);
+    const [start, end] = vertical
+      ? [rect.top, rect.bottom]
+      : [rect.left, rect.right];
+    const found = new Set<Element>();
+    for (let along = start; along <= end; along += 16) {
+      const [x, y] = vertical ? [center, along] : [along, center];
+      const top = document.elementsFromPoint(x, y).find((el) => el !== line);
+      if (top && !edge.element.contains(top) && !top.contains(edge.element))
+        found.add(top);
+    }
+    covers = { edge, elements: [...found], at: performance.now() };
+    return covers.elements;
+  };
+  const paint = (edge: Edge, rect: DOMRect, center: number) => {
+    const vertical = edge.axis === "x";
+    const start = vertical ? rect.top : rect.left;
+    const length = vertical ? rect.height : rect.width;
+    const gaps: [number, number][] = [];
+    for (const element of coversOf(edge, rect, center)) {
+      if (!element.isConnected) continue;
+      const box = element.getBoundingClientRect();
+      const [low, high, from, to] = vertical
+        ? [box.left, box.right, box.top, box.bottom]
+        : [box.top, box.bottom, box.left, box.right];
+      if (center < low || center > high) continue;
+      const a = Math.max(0, from - start);
+      const b = Math.min(length, to - start);
+      if (b > a) gaps.push([a, b]);
+    }
+    if (!gaps.length) {
+      line.style.background = LINE;
+      return;
+    }
+    gaps.sort((p, q) => p[0] - q[0]);
+    const stops: string[] = [];
+    let at = 0;
+    for (const [a, b] of gaps) {
+      if (b <= at) continue;
+      if (a > at) stops.push(`${LINE} ${at}px`, `${LINE} ${a}px`);
+      stops.push(`transparent ${Math.max(a, at)}px`, `transparent ${b}px`);
+      at = Math.max(at, b);
+    }
+    stops.push(`${LINE} ${at}px`, `${LINE} ${length}px`);
+    line.style.background = `linear-gradient(${vertical ? "to bottom" : "to right"}, ${stops.join(", ")})`;
   };
 
   // Keeps measuring every frame while grabbed and during the fade-out, because Figma moves the
@@ -206,6 +285,7 @@ if (runtime && !runtime.setResizeEdges) {
     line.style.top = `${vertical ? rect.top : center - 1}px`;
     line.style.width = `${vertical ? 2 : rect.width}px`;
     line.style.height = `${vertical ? rect.height : 2}px`;
+    paint(edge, rect, center);
   };
   const show = (edge: Edge) => {
     clearTimeout(hideTimer);
@@ -304,7 +384,15 @@ if (runtime && !runtime.setResizeEdges) {
     if (event.pointerType === "mouse" && !grab) {
       if (event.type === "pointermove" && event.buttons === 0) {
         const edge = hit(event.clientX, event.clientY);
-        if (edge && clear(event.clientX, event.clientY, edge)) show(edge);
+        if (
+          edge &&
+          clear(event.clientX, event.clientY, edge) &&
+          !(
+            event.target instanceof Element &&
+            covered(event.target, event.clientX, event.clientY, edge)
+          )
+        )
+          show(edge);
         else if (shown && hideTimer === undefined) hideNow();
       }
       if (event.type !== "pointerdown") return;
@@ -354,7 +442,12 @@ if (runtime && !runtime.setResizeEdges) {
     }
     edge ??= probe(event.clientX, event.clientY);
     // Something else (menu, popover, dialog) is on top: the press goes to it untouched.
-    if (!edge || !clear(event.clientX, event.clientY, edge)) return;
+    if (
+      !edge ||
+      !clear(event.clientX, event.clientY, edge) ||
+      covered(event.target, event.clientX, event.clientY, edge)
+    )
+      return;
     // Mouse and trackpad: a press on the real handle, or on a row or control beside it (a layer
     // row being dragged, a button), goes to Figma untouched. Only presses on bare panel surface
     // are retargeted.

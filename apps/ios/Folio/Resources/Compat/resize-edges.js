@@ -22,7 +22,7 @@
     let pointerAt;
     const line = document.createElement("div");
     line.setAttribute("aria-hidden", "true");
-    line.style.cssText = "position:fixed;left:0;top:0;width:0;height:0;margin:0;padding:0;border:0;background:#0D99FF;border-radius:1px;pointer-events:none;z-index:2147483647;opacity:0;transition:opacity 150ms ease-out;";
+    line.style.cssText = "position:fixed;left:0;top:0;width:0;height:0;margin:0;padding:0;border:0;border-radius:1px;pointer-events:none;z-index:2147483647;opacity:0;transition:opacity 150ms ease-out;";
     const axisOf = (element) => {
       const match = RESIZE_CURSOR.exec(getComputedStyle(element).cursor);
       if (match) return /^(col|ew|e|w)-/.test(match[1] ?? "") ? "x" : "y";
@@ -123,12 +123,77 @@
       const top = document.elementsFromPoint(x, y).find((el) => el !== line);
       return !top?.closest(OVERLAY);
     };
-    const clear = (x, y, edge) => {
+    const handleAt = (x, y, edge) => {
       const rect = edge.element.getBoundingClientRect();
+      return edge.axis === "x" ? {
+        x: rect.left + rect.width / 2,
+        y: Math.min(Math.max(y, rect.top), rect.bottom)
+      } : {
+        x: Math.min(Math.max(x, rect.left), rect.right),
+        y: rect.top + rect.height / 2
+      };
+    };
+    const clear = (x, y, edge) => {
+      const at = handleAt(x, y, edge);
+      return topmostOk(x, y) && topmostOk(at.x, at.y);
+    };
+    const covered = (target, x, y, edge) => {
+      const at = handleAt(x, y, edge);
+      const top = document.elementsFromPoint(at.x, at.y).find((el) => el !== line);
+      if (!top || edge.element.contains(top) || top.contains(edge.element))
+        return false;
+      for (let el = target; el; el = el.parentElement) {
+        if (el.contains(edge.element)) return false;
+        if (el.contains(top)) return true;
+      }
+      return false;
+    };
+    const LINE = "#0D99FF";
+    let covers;
+    const coversOf = (edge, rect, center) => {
+      if (covers?.edge === edge && performance.now() - covers.at < 250)
+        return covers.elements;
       const vertical = edge.axis === "x";
-      const hx = vertical ? rect.left + rect.width / 2 : Math.min(Math.max(x, rect.left), rect.right);
-      const hy = vertical ? Math.min(Math.max(y, rect.top), rect.bottom) : rect.top + rect.height / 2;
-      return topmostOk(x, y) && topmostOk(hx, hy);
+      const [start, end] = vertical ? [rect.top, rect.bottom] : [rect.left, rect.right];
+      const found = /* @__PURE__ */ new Set();
+      for (let along = start; along <= end; along += 16) {
+        const [x, y] = vertical ? [center, along] : [along, center];
+        const top = document.elementsFromPoint(x, y).find((el) => el !== line);
+        if (top && !edge.element.contains(top) && !top.contains(edge.element))
+          found.add(top);
+      }
+      covers = { edge, elements: [...found], at: performance.now() };
+      return covers.elements;
+    };
+    const paint = (edge, rect, center) => {
+      const vertical = edge.axis === "x";
+      const start = vertical ? rect.top : rect.left;
+      const length = vertical ? rect.height : rect.width;
+      const gaps = [];
+      for (const element of coversOf(edge, rect, center)) {
+        if (!element.isConnected) continue;
+        const box = element.getBoundingClientRect();
+        const [low, high, from, to] = vertical ? [box.left, box.right, box.top, box.bottom] : [box.top, box.bottom, box.left, box.right];
+        if (center < low || center > high) continue;
+        const a = Math.max(0, from - start);
+        const b = Math.min(length, to - start);
+        if (b > a) gaps.push([a, b]);
+      }
+      if (!gaps.length) {
+        line.style.background = LINE;
+        return;
+      }
+      gaps.sort((p, q) => p[0] - q[0]);
+      const stops = [];
+      let at = 0;
+      for (const [a, b] of gaps) {
+        if (b <= at) continue;
+        if (a > at) stops.push(`${LINE} ${at}px`, `${LINE} ${a}px`);
+        stops.push(`transparent ${Math.max(a, at)}px`, `transparent ${b}px`);
+        at = Math.max(at, b);
+      }
+      stops.push(`${LINE} ${at}px`, `${LINE} ${length}px`);
+      line.style.background = `linear-gradient(${vertical ? "to bottom" : "to right"}, ${stops.join(", ")})`;
     };
     const place = () => {
       frame = void 0;
@@ -147,6 +212,7 @@
       line.style.top = `${vertical ? rect.top : center - 1}px`;
       line.style.width = `${vertical ? 2 : rect.width}px`;
       line.style.height = `${vertical ? rect.height : 2}px`;
+      paint(edge, rect, center);
     };
     const show = (edge) => {
       clearTimeout(hideTimer);
@@ -229,7 +295,8 @@
       if (event.pointerType === "mouse" && !grab) {
         if (event.type === "pointermove" && event.buttons === 0) {
           const edge2 = hit(event.clientX, event.clientY);
-          if (edge2 && clear(event.clientX, event.clientY, edge2)) show(edge2);
+          if (edge2 && clear(event.clientX, event.clientY, edge2) && !(event.target instanceof Element && covered(event.target, event.clientX, event.clientY, edge2)))
+            show(edge2);
           else if (shown && hideTimer === void 0) hideNow();
         }
         if (event.type !== "pointerdown") return;
@@ -262,7 +329,8 @@
         edge = hit(event.clientX, event.clientY);
       }
       edge ??= probe(event.clientX, event.clientY);
-      if (!edge || !clear(event.clientX, event.clientY, edge)) return;
+      if (!edge || !clear(event.clientX, event.clientY, edge) || covered(event.target, event.clientX, event.clientY, edge))
+        return;
       if (event.pointerType === "mouse" && (edge.element.contains(event.target) || event.target.closest(CONTROL)))
         return;
       const rect = edge.element.getBoundingClientRect();
