@@ -638,6 +638,7 @@ final class BrowserWindowController: UIViewController {
     let duoLandscape =
       PhoneExperiencePolicy.isPhone && !compactLayout && view.bounds.width > view.bounds.height
     strip.clearsPageRail = duoLandscape
+    bottomBar.leadingReserve = duoLandscape ? content.frame.minX + strip.pageRailReserve : 0
     strip.pageLeading = content.frame.minX - strip.frame.minX
     placePageTrailingBorder(shown: duoLandscape && content.frame.maxX < view.bounds.maxX - 1)
   }
@@ -989,6 +990,15 @@ final class BrowserWindowController: UIViewController {
     (visible ? shownContentBottom : hiddenContentBottom)?.isActive = true
     view.setNeedsLayout()
     view.layoutIfNeeded()
+    setNeedsUpdateOfScreenEdgesDeferringSystemGestures()
+  }
+
+  /// While the bottom bar is shown, Folio takes the first swipe from the bottom edge. Otherwise
+  /// iOS holds back touches that start near that edge until it knows they are not the home
+  /// gesture, so a held modifier only went down when the finger lifted and read as a tap
+  /// (maintainer, 2026-11-20). Going home then takes a second swipe, as in games.
+  override var preferredScreenEdgesDeferringSystemGestures: UIRectEdge {
+    isViewLoaded && !bottomBar.isHidden ? .bottom : []
   }
 
   /// Owner-supplied interface zoom state, offered in the ⋯ menu.

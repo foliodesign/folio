@@ -25,6 +25,8 @@ final class InterfaceZoomContainerController: UIViewController {
 
   required init?(coder: NSCoder) { fatalError("Use injected interface zoom store") }
 
+  override var childForScreenEdgesDeferringSystemGestures: UIViewController? { browser }
+
   override func viewDidLoad() {
     super.viewDidLoad()
     view.backgroundColor = ChromePalette.bar

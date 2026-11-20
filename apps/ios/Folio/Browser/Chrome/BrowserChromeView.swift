@@ -103,6 +103,12 @@ final class BrowserChromeView: UIView, UIDragInteractionDelegate, UIDropInteract
       setNeedsLayout()
     }
   }
+  /// Width Home's leading edge moves in by when `clearsPageRail` is on: the rail and its border at
+  /// the interface zoom. The bottom row starts there too.
+  var pageRailReserve: CGFloat {
+    let zoom = CGFloat(interfaceZoom?.scale ?? 1)
+    return snapped(Self.homeRailWidth * zoom) + snapped(zoom)
+  }
   private let railBorder = UIView()
   private var cornerGuide: UILayoutGuide!
   /// Gap between iPad's window controls and Home (maintainer, 2026-11-11: it sat too close).

@@ -68,6 +68,15 @@ final class BottomToolbarView: UIView {
   /// Plain iPhones keep the full inset: their corners leave no room to come lower.
   private let roundCorners = !PhoneExperiencePolicy.isPhone || PhoneExperiencePolicy.isDuo
   private var rowBottom: NSLayoutConstraint!
+  /// Regular layout: the row's leading edge, past the safe area.
+  private var rowLeading: NSLayoutConstraint?
+  /// Regular layout: where the row starts, measured from the bar's leading edge, or 0 for the
+  /// usual edge inset. The iPhone Duo in landscape starts it right of Figma's navigation rail,
+  /// under Home, so the display's large corner stays empty at the bottom too and Shift is clear
+  /// of the edge (maintainer, 2026-11-20: keys at the edge were hard to touch).
+  var leadingReserve: CGFloat = 0 {
+    didSet { if leadingReserve != oldValue { placeRowLeading() } }
+  }
   private var phoneRowHeight: NSLayoutConstraint?
   private var keysTop: NSLayoutConstraint?
   private var scrollTop: NSLayoutConstraint?
@@ -311,11 +320,14 @@ final class BottomToolbarView: UIView {
       applyScale()
       return
     }
+    let leading = scroll.leadingAnchor.constraint(
+      equalTo: safeAreaLayoutGuide.leadingAnchor, constant: edge)
+    rowLeading = leading
     NSLayoutConstraint.activate([
       rowHeight,
       scroll.topAnchor.constraint(equalTo: topAnchor),
       rowBottom,
-      scroll.leadingAnchor.constraint(equalTo: safeAreaLayoutGuide.leadingAnchor, constant: edge),
+      leading,
       scroll.trailingAnchor.constraint(
         equalTo: safeAreaLayoutGuide.trailingAnchor, constant: -edge),
     ])
@@ -509,6 +521,16 @@ final class BottomToolbarView: UIView {
     super.safeAreaInsetsDidChange()
     let inset = Self.bottomInset(safeAreaInsets.bottom, roundCorners)
     if rowBottom.constant != -inset { rowBottom.constant = -inset }
+    placeRowLeading()
+  }
+
+  /// The button backgrounds sit 4 pt inside their frames, so the first plate lines up with a
+  /// reserve's edge plus that inset, like Home's tab in the top bar.
+  private func placeRowLeading() {
+    guard let rowLeading else { return }
+    let edge = Self.edgeInset(roundCorners)
+    let constant = leadingReserve > 0 ? max(edge, leadingReserve - safeAreaInsets.left) : edge
+    if rowLeading.constant != constant { rowLeading.constant = constant }
   }
 
   private func button(_ icon: String, _ label: String, _ tip: String) -> UIButton {
