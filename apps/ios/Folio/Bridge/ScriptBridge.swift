@@ -126,6 +126,12 @@ enum WebViewConfiguration {
     if PhoneExperiencePolicy.isPhone {
       config.defaultWebpagePreferences.preferredContentMode = .desktop
     }
+    // Inline video only (maintainer, 2026-11-20): Folio is not a video player. WebKit honours
+    // playsinline and muted autoplay (iPhone defaults to fullscreen playback), never Picture in
+    // Picture. inline-media.js adds playsinline and drops native controls in every mode but Safe.
+    config.allowsInlineMediaPlayback = true
+    config.allowsPictureInPictureMediaPlayback = false
+    config.mediaTypesRequiringUserActionForPlayback = .audio
     if mode != .safe {
       config.userContentController.add(bridge, contentWorld: ScriptBridge.world, name: "folio")
       config.userContentController.add(
@@ -157,6 +163,7 @@ enum WebViewConfiguration {
         "canvas-wheel",
         "ua-button-color",
         "hide-google",
+        "inline-media",
         "input-lab",
         // Inert until native enables it for a compact-layout file tab (any device).
         "phone-layout",

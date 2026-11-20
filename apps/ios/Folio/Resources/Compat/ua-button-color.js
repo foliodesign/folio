@@ -28,6 +28,7 @@
         globalThis.__folio?.disposeCanvasWheel?.();
         globalThis.__folio?.disposeUAButtonColor?.();
         globalThis.__folio?.disposeHideGoogle?.();
+        globalThis.__folio?.disposeInlineMedia?.();
         globalThis.__folio?.disposePhoneLayout?.();
         globalThis.__folio?.disposeLab?.();
         globalThis.__folio?.disposeMemoryLab?.();

@@ -19,6 +19,7 @@ for (const name of [
   "canvas-wheel",
   "ua-button-color",
   "hide-google",
+  "inline-media",
   "phone-layout",
   "input-lab",
   "memory-lab",
