@@ -91,6 +91,7 @@ if (runtime && !runtime.setCanvasWheel) {
         vx: number;
         vy: number;
         buffered: Event[];
+        modifiers: PointerEventInit;
       }
     | undefined;
   let hold: ReturnType<typeof setTimeout> | undefined;
@@ -111,6 +112,9 @@ if (runtime && !runtime.setCanvasWheel) {
       replaying = false;
     }
   };
+  // Finger pans and pinches stay plain wheels: latched on-screen modifiers are for the Pencil
+  // and taps, never a Shift or Command scroll (maintainer, 2026-11-20).
+  let fingerWheel = false;
   const wheel = (
     x: number,
     y: number,
@@ -119,21 +123,26 @@ if (runtime && !runtime.setCanvasWheel) {
     ctrlKey = false,
   ) => {
     const target = document.elementFromPoint(x, y);
-    if (target)
-      dispatch(
-        target,
-        new WheelEvent("wheel", {
-          clientX: x,
-          clientY: y,
-          deltaX: dx,
-          deltaY: dy,
-          deltaMode: 0,
-          ctrlKey,
-          bubbles: true,
-          cancelable: true,
-          composed: true,
-        }),
-      );
+    fingerWheel = true;
+    try {
+      if (target)
+        dispatch(
+          target,
+          new WheelEvent("wheel", {
+            clientX: x,
+            clientY: y,
+            deltaX: dx,
+            deltaY: dy,
+            deltaMode: 0,
+            ctrlKey,
+            bubbles: true,
+            cancelable: true,
+            composed: true,
+          }),
+        );
+    } finally {
+      fingerWheel = false;
+    }
   };
   let route: "wheel" | "gesture" = "wheel";
   let gestureSupported = false;
@@ -594,6 +603,7 @@ if (runtime && !runtime.setCanvasWheel) {
         vx: 0,
         vy: 0,
         buffered: [event],
+        modifiers: runtime.touchShortcutFlags?.() ?? {},
       };
       suppressMouseUntil = performance.now() + 1000;
       // Long press returns the held events and lets subsequent input pass through.
@@ -687,6 +697,7 @@ if (runtime && !runtime.setCanvasWheel) {
               button: 0,
               pressure: 0,
               detail: double ? 2 : 1,
+              ...sequence.modifiers,
             };
             const accepted = dispatch(
               sequence.target,
@@ -724,6 +735,7 @@ if (runtime && !runtime.setCanvasWheel) {
                   y: event.clientY,
                   target: sequence.target,
                 };
+            runtime.consumeTouchShortcutModifiers?.();
           }
         }
         suppressMouseUntil = now + 700;
@@ -900,11 +912,17 @@ if (runtime && !runtime.setCanvasWheel) {
     if (document.hidden) reset();
   };
   document.addEventListener("visibilitychange", visibility);
+  // Canvas fingers stay here while on-screen modifiers are latched: Touch Only owns its delay and
+  // handoff, Pencil and Touch keeps panning (a tap still carries the modifiers).
   runtime.ownsCanvasTouch = (event) =>
     enabled &&
-    touchMode === "touch-only" &&
     event.pointerType === "touch" &&
-    (!!direct || multiContact || event.target instanceof HTMLCanvasElement);
+    (touchMode === "touch-only"
+      ? !!direct || multiContact || event.target instanceof HTMLCanvasElement
+      : !!pending ||
+        multiContact ||
+        !!canvasAtPoint(event.clientX, event.clientY, event.target));
+  runtime.isFingerWheel = () => fingerWheel;
   runtime.isCanvasPoint = (x, y) => !!canvasAtPoint(x, y);
   runtime.canvasGestureDidMove = () => fingerGestureMoved;
   runtime.cancelCanvasContact = () => {
@@ -949,6 +967,7 @@ if (runtime && !runtime.setCanvasWheel) {
       window.removeEventListener(name, stopMomentum, true);
     document.removeEventListener("visibilitychange", visibility);
     delete runtime.ownsCanvasTouch;
+    delete runtime.isFingerWheel;
     delete runtime.isCanvasPoint;
     delete runtime.canvasGestureDidMove;
     delete runtime.cancelCanvasContact;

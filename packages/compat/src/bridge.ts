@@ -21,6 +21,7 @@ export interface FolioRuntime {
   >;
   consumeTouchShortcutModifiers?: () => void;
   ownsCanvasTouch?: (event: PointerEvent) => boolean;
+  isFingerWheel?: () => boolean;
   disposeTouchShortcuts?: () => void;
   post: (name: MessageName, payload: unknown) => void;
   captureKeyboardFocus?: () => void;

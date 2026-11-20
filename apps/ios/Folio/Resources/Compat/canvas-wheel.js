@@ -63,23 +63,29 @@
         replaying = false;
       }
     };
+    let fingerWheel = false;
     const wheel = (x, y, dx, dy, ctrlKey = false) => {
       const target = document.elementFromPoint(x, y);
-      if (target)
-        dispatch(
-          target,
-          new WheelEvent("wheel", {
-            clientX: x,
-            clientY: y,
-            deltaX: dx,
-            deltaY: dy,
-            deltaMode: 0,
-            ctrlKey,
-            bubbles: true,
-            cancelable: true,
-            composed: true
-          })
-        );
+      fingerWheel = true;
+      try {
+        if (target)
+          dispatch(
+            target,
+            new WheelEvent("wheel", {
+              clientX: x,
+              clientY: y,
+              deltaX: dx,
+              deltaY: dy,
+              deltaMode: 0,
+              ctrlKey,
+              bubbles: true,
+              cancelable: true,
+              composed: true
+            })
+          );
+      } finally {
+        fingerWheel = false;
+      }
     };
     let route = "wheel";
     let gestureSupported = false;
@@ -476,7 +482,8 @@
           pan: false,
           vx: 0,
           vy: 0,
-          buffered: [event]
+          buffered: [event],
+          modifiers: runtime.touchShortcutFlags?.() ?? {}
         };
         suppressMouseUntil = performance.now() + 1e3;
         hold = setTimeout(() => {
@@ -553,7 +560,8 @@
                 pointerId: sequence.down.pointerId,
                 button: 0,
                 pressure: 0,
-                detail: double ? 2 : 1
+                detail: double ? 2 : 1,
+                ...sequence.modifiers
               };
               const accepted = dispatch(
                 sequence.target,
@@ -589,6 +597,7 @@
                 y: event.clientY,
                 target: sequence.target
               };
+              runtime.consumeTouchShortcutModifiers?.();
             }
           }
           suppressMouseUntil = now + 700;
@@ -722,7 +731,8 @@
       if (document.hidden) reset();
     };
     document.addEventListener("visibilitychange", visibility);
-    runtime.ownsCanvasTouch = (event) => enabled && touchMode === "touch-only" && event.pointerType === "touch" && (!!direct || multiContact || event.target instanceof HTMLCanvasElement);
+    runtime.ownsCanvasTouch = (event) => enabled && event.pointerType === "touch" && (touchMode === "touch-only" ? !!direct || multiContact || event.target instanceof HTMLCanvasElement : !!pending || multiContact || !!canvasAtPoint(event.clientX, event.clientY, event.target));
+    runtime.isFingerWheel = () => fingerWheel;
     runtime.isCanvasPoint = (x, y) => !!canvasAtPoint(x, y);
     runtime.canvasGestureDidMove = () => fingerGestureMoved;
     runtime.cancelCanvasContact = () => {
@@ -767,6 +777,7 @@
         window.removeEventListener(name, stopMomentum, true);
       document.removeEventListener("visibilitychange", visibility);
       delete runtime.ownsCanvasTouch;
+      delete runtime.isFingerWheel;
       delete runtime.isCanvasPoint;
       delete runtime.canvasGestureDidMove;
       delete runtime.cancelCanvasContact;

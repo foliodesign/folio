@@ -248,6 +248,7 @@
     };
     const wheel = (event) => {
       if (replaying || !(event instanceof WheelEvent) || !mask) return;
+      if (runtime.isFingerWheel?.()) return;
       const held = flags(contacts.values().next().value?.mask ?? mask);
       suppress(event);
       dispatch(
