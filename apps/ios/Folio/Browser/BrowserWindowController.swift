@@ -36,6 +36,8 @@ final class BrowserWindowController: UIViewController {
   private let strip = BrowserChromeView()
   private let content = UIView()
   private var bottomBar = BottomToolbarView()
+  /// Whether the last shown tab was a file: back on Home after one is when a rating may be asked.
+  private var showingFile = false
   /// Compact layout: iPhone phone-size scenes and narrow iPad windows
   /// (`PhoneExperiencePolicy.usesCompactLayout`). False on regular iPad windows and unfolded Duo.
   private(set) var compactLayout = PhoneExperiencePolicy.isPhone
@@ -332,6 +334,7 @@ final class BrowserWindowController: UIViewController {
       OnboardingController.present(from: self)
     }
     strip.onShowTabs = { [weak self] in self?.showPhoneTabs() }
+    strip.onRateApp = { ReviewPrompt.openWriteReview() }
     #if DEBUG
       if fixture && ProcessInfo.processInfo.arguments.contains("--tabs-url-alert") {
         strip.onFixtureSetup = { [weak self] in self?.promptForTab() }
@@ -1003,6 +1006,20 @@ final class BrowserWindowController: UIViewController {
       (max(36, BrowserChromeView.height * CGFloat(state.scale)) * pixels).rounded() / pixels
   }
 
+  /// Counts days with a file open; back on Home after a file, asks for a rating when due.
+  private func noteReviewMoment(onFile: Bool) {
+    defer { showingFile = onFile }
+    if onFile {
+      ReviewPrompt.noteFileShown()
+    } else if showingFile {
+      ReviewPrompt.askIfDue(in: view.window?.windowScene) { [weak self] in
+        guard let self else { return false }
+        return self.session.selectedID == self.session.home.id
+          && self.presentedViewController == nil
+      }
+    }
+  }
+
   /// The separately owned container uses the same native selection path as Home.
   func selectHome() { showHome(loading: nil) }
 
@@ -1070,6 +1087,7 @@ final class BrowserWindowController: UIViewController {
   func showSelectedTab(ownerSelection: Bool = false) {
     let initialAttachment = active == nil
     let tab = session.selected
+    noteReviewMoment(onFile: tab.kind != .home)
     tab.lastUsed = Date()
     guard active?.tabSession.id != tab.id else {
       enforceTabRetention()

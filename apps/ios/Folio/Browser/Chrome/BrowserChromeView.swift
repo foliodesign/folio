@@ -55,6 +55,7 @@ final class BrowserChromeView: UIView, UIDragInteractionDelegate, UIDropInteract
   var onSettings: (() -> Void)?
   var onDeveloperTools: (() -> Void)?
   var onWelcomeTour: (() -> Void)?
+  var onRateApp: (() -> Void)?
   /// iPhone only: opens the tab list sheet.
   var onShowTabs: (() -> Void)?
   var onBack: (() -> Void)?
@@ -642,6 +643,7 @@ final class BrowserChromeView: UIView, UIDragInteractionDelegate, UIDropInteract
       ) { [weak self] in self?.onReopenClosedTab?() },
       .separator,
       ChromeMenuItem(title: "Welcome tour") { [weak self] in self?.onWelcomeTour?() },
+      ChromeMenuItem(title: "Rate Folio") { [weak self] in self?.onRateApp?() },
       ChromeMenuItem(title: "Settings…", hint: "⌘,") { [weak self] in self?.onSettings?() },
       ChromeMenuItem(title: "Developer Tools", hint: "⌥⌘I") { [weak self] in
         self?.onDeveloperTools?()
