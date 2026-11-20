@@ -79,6 +79,7 @@ export interface FolioRuntime {
   disposeUAButtonColor?: () => void;
   setHideGoogle?: (enabled: boolean) => void;
   disposeHideGoogle?: () => void;
+  disposeInlineMedia?: () => void;
   setPhoneLayout?: (
     enabled: boolean,
     minimized?: boolean,
@@ -151,6 +152,7 @@ if (!globalThis.__folio) {
       globalThis.__folio?.disposeCanvasWheel?.();
       globalThis.__folio?.disposeUAButtonColor?.();
       globalThis.__folio?.disposeHideGoogle?.();
+      globalThis.__folio?.disposeInlineMedia?.();
       globalThis.__folio?.disposePhoneLayout?.();
       globalThis.__folio?.disposeLab?.();
       globalThis.__folio?.disposeMemoryLab?.();
