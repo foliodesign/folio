@@ -1111,6 +1111,26 @@ test("Touch Only latched modifiers use canvas delay/handoff and consume only com
   assert.equal(h.context.__folio.touchShortcutFlags().shiftKey, true);
 });
 
+test("Pencil and Touch: a finger still pans with a modifier on, a tap carries it", () => {
+  const h = harness(false, false, true);
+  h.context.__folio.setTouchShortcutModifiers(2); // Locked Shift.
+  h.delivered.length = 0;
+  h.send("pointerdown");
+  h.advance(16);
+  h.send("pointermove", { clientX: 30, clientY: 50 });
+  h.send("pointerup", { clientX: 30, clientY: 50 });
+  assert.ok(h.delivered.length > 0);
+  assert.ok(h.delivered.every((e) => e.type === "wheel" && !e.shiftKey));
+  h.advance(500);
+  h.delivered.length = 0;
+  h.send("pointerdown");
+  h.send("pointerup");
+  const click = h.delivered.find((e) => e.type === "click");
+  assert.equal(click?.shiftKey, true);
+  assert.equal(h.delivered.find((e) => e.type === "mousedown").shiftKey, true);
+  assert.equal(h.context.__folio.touchShortcutFlags().shiftKey, true);
+});
+
 test("canvas containers qualify, covering UI and mixed sidebar contacts stay native", () => {
   const h = harness();
   h.canvas.getBoundingClientRect = () => ({

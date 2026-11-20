@@ -137,7 +137,7 @@ if (runtime && !runtime.setTouchShortcutModifiers) {
       if (!contacts.size) routingTouch = false;
     }
     if (!["touch", "pen", "mouse"].includes(event.pointerType)) return;
-    // Touch Only canvas arbitration owns the delay and multi-finger handoff, even with a latch.
+    // Canvas finger arbitration (canvas-wheel.ts) keeps its fingers, even with a latch.
     if (!contacts.has(event.pointerId) && runtime.ownsCanvasTouch?.(event))
       return;
     if (
@@ -277,6 +277,7 @@ if (runtime && !runtime.setTouchShortcutModifiers) {
   };
   const wheel = (event: Event) => {
     if (replaying || !(event instanceof WheelEvent) || !mask) return;
+    if (runtime.isFingerWheel?.()) return;
     const held = flags(contacts.values().next().value?.mask ?? mask);
     // Existing canvas and pinch adapters also dispatch wheel events. Retain their ctrl flag.
     suppress(event);
