@@ -14,7 +14,7 @@ enum ShortcutEditAction {
   }
 }
 
-/// File-tab bottom bar: modifier keys, a flick arrow key and edit commands. In compact layouts
+/// File-tab bottom bar: modifier keys, a flick arrow key, Delete and edit commands. In compact layouts
 /// (iPhone, narrow iPad windows; maintainer, 2026-11-11) nothing scrolls: Layers, Properties,
 /// Keys and Tools sit fixed at the left, Undo, Redo, Cut, Copy and Paste fixed at the right.
 /// Keys opens a second row with the modifiers and arrows, Tools one with Duplicate, Select all,
@@ -31,6 +31,9 @@ final class BottomToolbarView: UIView {
   /// Same size and weight as the Home tab's symbol, scaled with interface zoom.
   static let iconPointSize: CGFloat = 16
   private static let tapDuration: TimeInterval = 0.35
+  /// A page echo arrives within milliseconds; a real page reset this soon after a press is
+  /// rare, and the next press sends the mask again anyway.
+  private static let echoWindow: TimeInterval = 0.3
 
   var onEdit: ((ShortcutEditAction, UIView) -> Void)?
   var onKey: ((String, Bool?) -> Void)?
@@ -46,8 +49,8 @@ final class BottomToolbarView: UIView {
   private let toolsRow = UIStackView()
   /// Compact: holds the keys row and the Tools row; one shows at a time.
   private let drawerStack = UIStackView()
-  private let scroll = UIScrollView()
-  private let keysScroll = UIScrollView()
+  private let scroll = KeyRowScrollView()
+  private let keysScroll = KeyRowScrollView()
   private let right = UIStackView()
   /// iPad: modifiers, arrows and commands in one scrolling row. It looks the same as fixed keys
   /// with right-aligned commands while everything fits, and scrolls instead of clipping when not.
@@ -62,6 +65,8 @@ final class BottomToolbarView: UIView {
   private var modifierMask = 0
   private var toggled: Set<Int> = []
   private var held: [Int: (wasOn: Bool, start: TimeInterval, used: Bool)] = [:]
+  /// When the mask last went to the page; a page report right after it is a stale echo.
+  private var lastPublish: TimeInterval = 0
   private let phone: Bool
   /// iPad and the iPhone Duo (maintainer, 2026-11-11): the row sits lower, in half of the
   /// home-indicator inset, and further in from the sides, clear of the display's large corners.
@@ -186,6 +191,20 @@ final class BottomToolbarView: UIView {
     widths.append(arrowWidth)
     arrowWidth.isActive = true
     arrows.heightAnchor.constraint(equalTo: left.heightAnchor).isActive = true
+    // Backspace, so a selection or text can be deleted without the keyboard (maintainer,
+    // 2026-11-25). Held or latched modifiers apply, as on a keyboard.
+    let delete = button("delete.left", "Delete", "Delete ⌫")
+    delete.addAction(
+      UIAction { [weak self] _ in
+        self?.markUsed()
+        self?.onKey?("delete", nil)
+      }, for: .touchUpInside)
+    left.addArrangedSubview(delete)
+    for view in [scroll, keysScroll] {
+      view.holdsTouches = { [weak self] view in
+        view === self?.arrows || self?.modifiers.values.contains { $0 === view } == true
+      }
+    }
 
     // Leading spacer keeps the commands right-aligned while they fit; they scroll when not.
     // Phones keep them left-aligned behind the panel and tool buttons.
@@ -628,6 +647,7 @@ final class BottomToolbarView: UIView {
 
   private func publish() {
     let mask = toggled.union(held.keys).reduce(0) { $0 | (2 << $1) }
+    lastPublish = ProcessInfo.processInfo.systemUptime
     render(mask)
     onModifiers?(mask)
   }
@@ -636,15 +656,23 @@ final class BottomToolbarView: UIView {
     onEdit?(action, self)
   }
 
-  /// Page-reported state, or 0 to release everything (tab switch, blur, navigation).
-  func updateMask(_ value: Int) {
-    if value & 0xFF == 0 {
-      held.removeAll()
-      toggled.removeAll()
-    } else {
-      toggled = Set([0, 2, 4, 6].filter { (value >> $0) & 3 != 0 && held[$0] == nil })
-    }
-    render(value & 0xFF)
+  /// Native release (tab switch, layout change): every held and latched key goes up.
+  func releaseAll() {
+    held.removeAll()
+    toggled.removeAll()
+    render(0)
+  }
+
+  /// The page echoes every mask it gets. The bar owns the keys, so only the page's own reset
+  /// (blur, page hide) counts: latched keys go up and a key a finger still holds is sent again.
+  /// Rebuilding from echoes let an echo of an earlier release, arriving after a new press, drop
+  /// that press and leave the key latched (maintainer, 2026-11-25: holds failed after repeats).
+  func pageReported(_ value: Int) {
+    guard value & 0xFF == 0, !toggled.isEmpty || !held.isEmpty,
+      ProcessInfo.processInfo.systemUptime - lastPublish > Self.echoWindow
+    else { return }
+    toggled.removeAll()
+    if held.isEmpty { render(0) } else { publish() }
   }
 
   private func render(_ mask: Int) {
@@ -653,7 +681,8 @@ final class BottomToolbarView: UIView {
       let down = (mask >> offset) & 3 != 0
       button.accessibilityValue = down ? "On" : "Off"
       button.accessibilityTraits = down ? [.button, .selected] : .button
-      button.setNeedsUpdateConfiguration()
+      // At once, without UIKit's highlight cross-fade: a key looks down while it is down.
+      UIView.performWithoutAnimation { button.updateConfiguration() }
     }
   }
 
@@ -1100,5 +1129,23 @@ final class FlickArrowControl: UIControl {
     plate.layer.borderColor =
       (current == nil ? ChromePalette.divider : ChromePalette.figmaBlue)
       .resolvedColor(with: traitCollection).cgColor
+  }
+}
+
+/// Key rows press at once: no scroll-view touch delay before a key goes down, and a drag that
+/// starts on a held key (modifier, arrows) never cancels it. Other buttons still let the row
+/// scroll.
+private final class KeyRowScrollView: UIScrollView {
+  var holdsTouches: (UIView) -> Bool = { _ in false }
+
+  override init(frame: CGRect) {
+    super.init(frame: frame)
+    delaysContentTouches = false
+  }
+
+  required init?(coder: NSCoder) { fatalError("Use programmatic key row") }
+
+  override func touchesShouldCancel(in view: UIView) -> Bool {
+    holdsTouches(view) ? false : true
   }
 }

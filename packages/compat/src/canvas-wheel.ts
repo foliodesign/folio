@@ -56,11 +56,12 @@ if (runtime && !runtime.setCanvasWheel) {
         moved: boolean;
         mouse: boolean;
         started: boolean;
-        modifiers: PointerEventInit;
         capture?: Element;
       }
     | undefined;
   let directHold: ReturnType<typeof setTimeout> | undefined;
+  // Read on every event: a modifier held after the finger lands still applies mid-drag.
+  const held = (): PointerEventInit => runtime.touchShortcutFlags?.() ?? {};
   let multiContact = false;
   let fingerGestureMoved = false;
   let fingerGesture:
@@ -91,7 +92,6 @@ if (runtime && !runtime.setCanvasWheel) {
         vx: number;
         vy: number;
         buffered: Event[];
-        modifiers: PointerEventInit;
       }
     | undefined;
   let hold: ReturnType<typeof setTimeout> | undefined;
@@ -437,6 +437,7 @@ if (runtime && !runtime.setCanvasWheel) {
     phase: "down" | "move" | "up",
   ) => {
     const e = phase === "down" ? sequence.down : sequence.last;
+    const keys = held();
     const target = sequence.capture?.isConnected
       ? sequence.capture
       : sequence.target;
@@ -447,10 +448,10 @@ if (runtime && !runtime.setCanvasWheel) {
       button: phase === "move" ? -1 : 0,
       buttons: phase === "down" || phase === "move" ? 1 : 0,
       pressure: phase === "down" || phase === "move" ? e.pressure : 0,
-      altKey: e.altKey || sequence.modifiers.altKey,
-      ctrlKey: e.ctrlKey || sequence.modifiers.ctrlKey,
-      metaKey: e.metaKey || sequence.modifiers.metaKey,
-      shiftKey: e.shiftKey || sequence.modifiers.shiftKey,
+      altKey: e.altKey || keys.altKey,
+      ctrlKey: e.ctrlKey || keys.ctrlKey,
+      metaKey: e.metaKey || keys.metaKey,
+      shiftKey: e.shiftKey || keys.shiftKey,
     };
     const accepted = dispatch(
       target,
@@ -494,6 +495,7 @@ if (runtime && !runtime.setCanvasWheel) {
       sequence.target.isConnected
     ) {
       const e = sequence.last;
+      const keys = held();
       const double =
         lastTap &&
         performance.now() - lastTap.time < 350 &&
@@ -505,10 +507,10 @@ if (runtime && !runtime.setCanvasWheel) {
         buttons: 0,
         pressure: 0,
         detail: double ? 2 : 1,
-        altKey: e.altKey || sequence.modifiers.altKey,
-        ctrlKey: e.ctrlKey || sequence.modifiers.ctrlKey,
-        metaKey: e.metaKey || sequence.modifiers.metaKey,
-        shiftKey: e.shiftKey || sequence.modifiers.shiftKey,
+        altKey: e.altKey || keys.altKey,
+        ctrlKey: e.ctrlKey || keys.ctrlKey,
+        metaKey: e.metaKey || keys.metaKey,
+        shiftKey: e.shiftKey || keys.shiftKey,
       };
       dispatch(sequence.target, new MouseEvent("click", init));
       if (double) dispatch(sequence.target, new MouseEvent("dblclick", init));
@@ -583,7 +585,6 @@ if (runtime && !runtime.setCanvasWheel) {
           moved: false,
           mouse: true,
           started: false,
-          modifiers: runtime.touchShortcutFlags?.() ?? {},
         };
         suppressMouseUntil = performance.now() + 1000;
         const sequence = direct;
@@ -603,7 +604,6 @@ if (runtime && !runtime.setCanvasWheel) {
         vx: 0,
         vy: 0,
         buffered: [event],
-        modifiers: runtime.touchShortcutFlags?.() ?? {},
       };
       suppressMouseUntil = performance.now() + 1000;
       // Long press returns the held events and lets subsequent input pass through.
@@ -697,7 +697,7 @@ if (runtime && !runtime.setCanvasWheel) {
               button: 0,
               pressure: 0,
               detail: double ? 2 : 1,
-              ...sequence.modifiers,
+              ...held(),
             };
             const accepted = dispatch(
               sequence.target,
@@ -888,6 +888,44 @@ if (runtime && !runtime.setCanvasWheel) {
     )
       suppress(event, true);
   };
+  // Pens and held fingers in Pencil and Touch reach the page natively. Once a modifier is on, the
+  // rest of such a contact's events go out as copies that carry it (maintainer, 2026-11-25: Shift
+  // held mid-drag on the Duo did nothing).
+  const late = new Set<number>();
+  const lateModifiers = (event: Event) => {
+    if (
+      replaying ||
+      !event.isTrusted ||
+      !(event instanceof PointerEvent) ||
+      event.pointerType === "mouse"
+    )
+      return;
+    const keys = held();
+    const on = Object.values(keys).some(Boolean);
+    if (event.type === "pointerdown") {
+      late.delete(event.pointerId);
+      return;
+    }
+    const rewriting = late.has(event.pointerId) || on;
+    if (event.type === "pointerup" || event.type === "pointercancel")
+      late.delete(event.pointerId);
+    else if (rewriting) late.add(event.pointerId);
+    if (!rewriting || !event.target) return;
+    suppress(event, true);
+    dispatch(
+      event.target,
+      new PointerEvent(event.type, {
+        ...pointerInit(event),
+        view: window,
+        tiltX: event.tiltX,
+        tiltY: event.tiltY,
+        altKey: event.altKey || !!keys.altKey,
+        ctrlKey: event.ctrlKey || !!keys.ctrlKey,
+        metaKey: event.metaKey || !!keys.metaKey,
+        shiftKey: event.shiftKey || !!keys.shiftKey,
+      }),
+    );
+  };
   const groups: [string[], EventListener][] = [
     [["gotpointercapture", "lostpointercapture"], capture],
     [["gesturestart", "gesturechange", "gestureend"], nativeGesture],
@@ -896,6 +934,11 @@ if (runtime && !runtime.setCanvasWheel) {
     [["pointerdown", "pointermove", "pointerup", "pointercancel"], pointer],
     [["touchstart", "touchmove", "touchend", "touchcancel"], touch],
     [["mousedown", "mousemove", "mouseup", "click", "dblclick"], mouse],
+    // Last, so every other input script has seen the original first.
+    [
+      ["pointerdown", "pointermove", "pointerup", "pointercancel"],
+      lateModifiers,
+    ],
   ];
   for (const [names, listener] of groups)
     for (const name of names)

@@ -1111,6 +1111,58 @@ test("Touch Only latched modifiers use canvas delay/handoff and consume only com
   assert.equal(h.context.__folio.touchShortcutFlags().shiftKey, true);
 });
 
+test("Touch Only: a modifier held after the drag starts applies to the rest of it", () => {
+  const h = harness(false, false, true);
+  h.context.__folio.setTouchMode("touch-only");
+  h.delivered.length = 0;
+  h.send("pointerdown");
+  h.advance(150);
+  h.send("pointermove", { clientX: 30 });
+  const moves = () => h.delivered.filter((e) => e.type === "pointermove");
+  assert.equal(moves().at(-1)?.shiftKey, false);
+  h.context.__folio.setTouchShortcutModifiers(2);
+  h.send("pointermove", { clientX: 40 });
+  assert.equal(moves().at(-1)?.shiftKey, true);
+  h.context.__folio.setTouchShortcutModifiers(0);
+  h.send("pointermove", { clientX: 50 });
+  assert.equal(moves().at(-1)?.shiftKey, false);
+  h.context.__folio.setTouchShortcutModifiers(2);
+  h.send("pointerup", { clientX: 50 });
+  assert.equal(h.delivered.find((e) => e.type === "mouseup")?.shiftKey, true);
+});
+
+test("Pencil and Touch: a modifier held after a pen or held finger landed reaches the rest of the drag", () => {
+  const h = harness(false, false, true);
+  const moves = () => h.delivered.filter((e) => e.type === "pointermove");
+  const pen = { pointerType: "pen", pointerId: 7 };
+  h.send("pointerdown", pen);
+  assert.notEqual(h.send("pointermove", { ...pen, clientX: 30 }).stopped, true);
+  assert.equal(moves().length, 0);
+  h.context.__folio.setTouchShortcutModifiers(2);
+  assert.equal(h.send("pointermove", { ...pen, clientX: 40 }).stopped, true);
+  assert.equal(moves().at(-1).shiftKey, true);
+  assert.equal(moves().at(-1).pointerType, "pen");
+  assert.equal(moves().at(-1).clientX, 40);
+  h.context.__folio.setTouchShortcutModifiers(0);
+  assert.equal(h.send("pointermove", { ...pen, clientX: 50 }).stopped, true);
+  assert.equal(moves().at(-1).shiftKey, false);
+  h.send("pointerup", { ...pen, clientX: 50 });
+  assert.equal(h.delivered.at(-1).type, "pointerup");
+  h.send("pointerdown", pen);
+  assert.notEqual(h.send("pointermove", { ...pen, clientX: 60 }).stopped, true);
+  h.send("pointerup", { ...pen, clientX: 60 });
+
+  // A finger held past the long press reaches the page natively too.
+  h.send("pointerdown");
+  h.advance(500);
+  h.delivered.length = 0;
+  assert.notEqual(h.send("pointermove", { clientX: 30 }).stopped, true);
+  h.context.__folio.setTouchShortcutModifiers(2);
+  assert.equal(h.send("pointermove", { clientX: 40 }).stopped, true);
+  assert.equal(moves().at(-1).shiftKey, true);
+  assert.equal(moves().at(-1).pointerType, "touch");
+});
+
 test("Pencil and Touch: a finger still pans with a modifier on, a tap carries it", () => {
   const h = harness(false, false, true);
   h.context.__folio.setTouchShortcutModifiers(2); // Locked Shift.

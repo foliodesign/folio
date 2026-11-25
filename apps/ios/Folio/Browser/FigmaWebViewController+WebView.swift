@@ -103,6 +103,8 @@ extension FigmaWebViewController {
     browser.uiDelegate = self
     let viewport = InterfaceZoomViewport(browser: browser)
     zoomViewport = viewport
+    viewport.onSideInsetsCSS = { [weak self] _ in self?.sendSideInsets() }
+    updateSideInsets()
     viewport.beginLoading()
     viewport.translatesAutoresizingMaskIntoConstraints = false
     view.insertSubview(viewport, belowSubview: diagnosticsButton)
@@ -743,12 +745,28 @@ extension FigmaWebViewController {
   }
 
   func applyPhoneLayout() {
+    sendSideInsets()
     zoomViewport?.preservesPhoneGeometry = phoneLayoutActive
     if !phoneWideViewport { zoomViewport?.setOverscan(left: 0, right: 0) }
     runScript(
       "globalThis.__folio?.setPhoneLayout?.(\(phoneLayoutActive), \(phoneMinimized), \(phoneWideViewport), \(phoneNumberKeyboard), \(phoneSides)); void 0"
     )
     onPhoneLayoutChange?(true)
+  }
+
+  /// Plain iPhones: the page lies under the side safe areas and the web view keeps clear of them.
+  func updateSideInsets() {
+    guard PhoneExperiencePolicy.canvasToScreenEdges else { return }
+    zoomViewport?.sideInsets = (view.safeAreaInsets.left, view.safeAreaInsets.right)
+  }
+
+  /// The page extends the canvas into a side safe area while that side's panel is closed.
+  func sendSideInsets() {
+    guard PhoneExperiencePolicy.canvasToScreenEdges, let insets = zoomViewport?.sideInsetsCSS
+    else { return }
+    runScript(
+      "globalThis.__folio?.phoneSafeSides?.(\(Double(insets.left)), \(Double(insets.right))); void 0"
+    )
   }
 
   /// Keep the phone viewport widened across sheet toggles; reset when the layout is off.

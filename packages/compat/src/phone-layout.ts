@@ -138,6 +138,9 @@ if (runtime && !runtime.setPhoneLayout) {
   const open = new Set<Side>();
   // Renderer reservation left and right of the canvas (CSS px), last measured while expanded.
   let reserve: [number, number] = [0, 0];
+  // Plain iPhones: side safe areas (CSS px) native keeps the web view out of. A closed side
+  // panel's side extends the canvas into its safe area, out to the screen edge.
+  let safeSides: [number, number] = [0, 0];
   // Part of the left reservation before the Layers panel (the rail, which Folio hides).
   let railReserve = 0;
   let measurementDirty = true;
@@ -340,8 +343,8 @@ if (runtime && !runtime.setPhoneLayout) {
     const [left, right] = reserve;
     if (!sidesOn()) return [left, right];
     return [
-      open.has("left") ? railReserve : left,
-      open.has("right") ? 0 : right,
+      open.has("left") ? railReserve : left + safeSides[0],
+      open.has("right") ? 0 : right + safeSides[1],
     ];
   };
   // On-screen width (CSS px) of the open landscape side panels.
@@ -1088,6 +1091,18 @@ if (runtime && !runtime.setPhoneLayout) {
     css();
     if (field && keyboard > 0) reveal();
   };
+  runtime.phoneSafeSides = (left, right) => {
+    const number = (n: unknown) =>
+      typeof n === "number" && Number.isFinite(n)
+        ? Math.round(Math.min(200, Math.max(0, n)))
+        : 0;
+    const next: [number, number] = [number(left), number(right)];
+    if (next[0] === safeSides[0] && next[1] === safeSides[1]) return;
+    safeSides = next;
+    if (!enabled) return;
+    css();
+    post();
+  };
   // Landscape and portrait carry the open panels over: a sheet becomes its side and back.
   const setSides = (wanted: boolean) => {
     const before = sidesOn();
@@ -1278,6 +1293,7 @@ if (runtime && !runtime.setPhoneLayout) {
     delete runtime.phoneSheetDrag;
     delete runtime.phoneFieldKey;
     delete runtime.phoneKeyboard;
+    delete runtime.phoneSafeSides;
     delete runtime.disposePhoneLayout;
   };
 }

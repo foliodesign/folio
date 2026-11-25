@@ -15,6 +15,12 @@ temporary = root / '.tmp'
 temporary.mkdir(exist_ok=True)
 
 
+# A real Xcode: on macOS, /usr/bin/python3 (the mocks' interpreter) resolves through it.
+DEVELOPER = os.environ.get('DEVELOPER_DIR') or (
+    subprocess.run(['xcode-select', '-p'], capture_output=True, text=True).stdout.strip()
+    if shutil.which('xcode-select') else ''
+) or '/Applications/Xcode.app/Contents/Developer'
+
 def device(identifier='CORE-A', udid='UDID-A', state='disconnected', legacy=False, **changes):
     fixture = 'legacy.json' if legacy else 'modern.json'
     result = copy.deepcopy(json.loads(Path(__file__).with_name(fixture).read_text())['result'])
@@ -144,14 +150,14 @@ with tempfile.TemporaryDirectory(prefix='b4-mocks-', dir=temporary) as directory
         output.mkdir(parents=True, exist_ok=True)
         sentinel = output / 'devices.json'
         sentinel.write_text(json.dumps({'result': {'devices': [device(state='connected')]}}))
-        environment = dict(os.environ, PATH=f'{binaries}:/usr/bin:/bin', B4_SCENARIO=str(spec_path), B4_ARGV=str(argv_path), FOLIO_DEVICE='', FOLIO_DEVICE_TYPE='')
+        environment = dict(os.environ, PATH=f'{binaries}:/usr/bin:/bin', B4_SCENARIO=str(spec_path), B4_ARGV=str(argv_path), FOLIO_DEVICE='', FOLIO_DEVICE_TYPE='', DEVELOPER_DIR=DEVELOPER)
         environment.update(spec.get('env', {}))
         result = subprocess.run(['bash', str(scripts / 'device-build.sh')], env=environment, text=True, capture_output=True, timeout=25)
         try:
             assert result.returncode == status, (result.returncode, status, result.stderr)
             calls = [json.loads(line) for line in argv_path.read_text().splitlines()]
             assert calls[0][0:2] == ['xcodegen', ['generate', '--spec', 'apps/ios/project.yml']]
-            assert all(c[2] == '/Applications/Xcode.app/Contents/Developer' for c in calls)
+            assert all(c[2] == DEVELOPER for c in calls)
             builds = [c[1] for c in calls if c[0] == 'xcodebuild']
             devcalls = [c[1][1:] for c in calls if c[0] == 'xcrun']
             detail_calls = [c for c in devcalls if c[:3] == ['device', 'info', 'details']]

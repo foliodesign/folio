@@ -146,6 +146,7 @@
       suppress(event);
       suppressMouseUntil = performance.now() + 800;
       contact.moved ||= Math.hypot(event.clientX - contact.x, event.clientY - contact.y) > 5;
+      const keys = flags();
       const init = {
         bubbles: true,
         cancelable: true,
@@ -161,10 +162,10 @@
         button: event.type === "pointercancel" ? 0 : event.button,
         buttons: event.buttons,
         pressure: event.pressure,
-        shiftKey: event.shiftKey || flags(contact.mask).shiftKey,
-        altKey: event.altKey || flags(contact.mask).altKey,
-        metaKey: event.metaKey || flags(contact.mask).metaKey,
-        ctrlKey: event.ctrlKey || flags(contact.mask).ctrlKey
+        shiftKey: event.shiftKey || keys.shiftKey,
+        altKey: event.altKey || keys.altKey,
+        metaKey: event.metaKey || keys.metaKey,
+        ctrlKey: event.ctrlKey || keys.ctrlKey
       };
       contact.init = init;
       const accepted = dispatch(

@@ -1,7 +1,8 @@
 #!/bin/bash
 set -euo pipefail
 export PATH="$PATH:/opt/homebrew/bin"
-export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
+# The Xcode chosen with xcode-select (27.2 on M4 and M3 Pro), unless DEVELOPER_DIR names another.
+export DEVELOPER_DIR="${DEVELOPER_DIR:-$(xcode-select -p)}"
 ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
 cd "$ROOT"
 OUTPUT="$ROOT/.tmp/device"

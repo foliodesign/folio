@@ -18,6 +18,14 @@ final class InterfaceZoomViewport: UIView {
   /// region. The web view grows by both and shifts left, so its left part lies off-screen and
   /// clipped; hit testing stays correct because the geometry is real.
   private(set) var overscan: (left: CGFloat, right: CGFloat) = (0, 0)
+  /// Plain iPhones: the side safe areas (points) the visible region keeps clear of. Overscan
+  /// counts from them, so a page can still extend into them (closed landscape side panels).
+  var sideInsets: (left: CGFloat, right: CGFloat) = (0, 0) {
+    didSet { if sideInsets != oldValue { setNeedsLayout() } }
+  }
+  /// `sideInsets` in CSS px at the current interface zoom, for the page's landscape layout.
+  private(set) var sideInsetsCSS: (left: CGFloat, right: CGFloat) = (0, 0)
+  var onSideInsetsCSS: (((left: CGFloat, right: CGFloat)) -> Void)?
 
   /// Snapshot covering an animated overscan change.
   private var transition: UIView?
@@ -142,11 +150,14 @@ final class InterfaceZoomViewport: UIView {
 
   /// Layout size in CSS px and on-screen center for the current zoom scale and overscan.
   private func browserGeometry(scale: CGFloat) -> (size: CGSize, center: CGPoint) {
+    let visible = max(1, bounds.width - sideInsets.left - sideInsets.right)
     let size = CGSize(
-      width: bounds.width / scale + overscan.left + overscan.right,
+      width: visible / scale + overscan.left + overscan.right,
       height: bounds.height / scale)
     let center = CGPoint(
-      x: bounds.midX + (overscan.right - overscan.left) * scale / 2, y: bounds.midY)
+      x: bounds.minX + sideInsets.left + visible / 2
+        + (overscan.right - overscan.left) * scale / 2,
+      y: bounds.midY)
     return (size, center)
   }
 
@@ -155,6 +166,11 @@ final class InterfaceZoomViewport: UIView {
     let scale = browser.transform.a
     guard scale > 0, bounds.width > 0, bounds.height > 0 else { return }
     let (size, center) = browserGeometry(scale: scale)
+    let css = ((sideInsets.left / scale).rounded(), (sideInsets.right / scale).rounded())
+    if css != sideInsetsCSS {
+      sideInsetsCSS = css
+      onSideInsetsCSS?(css)
+    }
     // Set bounds and center rather than frame, which is undefined under a transform.
     // WebKit sees this new layout size and delivers its normal DOM resize event.
     if browser.bounds.size != size { browser.bounds.size = size }
