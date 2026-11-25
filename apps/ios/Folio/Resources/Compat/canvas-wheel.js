@@ -38,6 +38,7 @@
     let touchMode = "pencil-and-touch";
     let direct;
     let directHold;
+    const held = () => runtime.touchShortcutFlags?.() ?? {};
     let multiContact = false;
     let fingerGestureMoved = false;
     let fingerGesture;
@@ -339,6 +340,7 @@
     };
     const directPair = (sequence, phase) => {
       const e = phase === "down" ? sequence.down : sequence.last;
+      const keys = held();
       const target = sequence.capture?.isConnected ? sequence.capture : sequence.target;
       const init = {
         ...pointerInit(e),
@@ -347,10 +349,10 @@
         button: phase === "move" ? -1 : 0,
         buttons: phase === "down" || phase === "move" ? 1 : 0,
         pressure: phase === "down" || phase === "move" ? e.pressure : 0,
-        altKey: e.altKey || sequence.modifiers.altKey,
-        ctrlKey: e.ctrlKey || sequence.modifiers.ctrlKey,
-        metaKey: e.metaKey || sequence.modifiers.metaKey,
-        shiftKey: e.shiftKey || sequence.modifiers.shiftKey
+        altKey: e.altKey || keys.altKey,
+        ctrlKey: e.ctrlKey || keys.ctrlKey,
+        metaKey: e.metaKey || keys.metaKey,
+        shiftKey: e.shiftKey || keys.shiftKey
       };
       const accepted = dispatch(
         target,
@@ -388,6 +390,7 @@
         sequence.capture.releasePointerCapture(sequence.down.pointerId);
       if (!cancelled && sequence.mouse && !sequence.moved && sequence.target.isConnected) {
         const e = sequence.last;
+        const keys = held();
         const double = lastTap && performance.now() - lastTap.time < 350 && lastTap.target === sequence.target && Math.hypot(e.clientX - lastTap.x, e.clientY - lastTap.y) < 8;
         const init = {
           ...pointerInit(e),
@@ -395,10 +398,10 @@
           buttons: 0,
           pressure: 0,
           detail: double ? 2 : 1,
-          altKey: e.altKey || sequence.modifiers.altKey,
-          ctrlKey: e.ctrlKey || sequence.modifiers.ctrlKey,
-          metaKey: e.metaKey || sequence.modifiers.metaKey,
-          shiftKey: e.shiftKey || sequence.modifiers.shiftKey
+          altKey: e.altKey || keys.altKey,
+          ctrlKey: e.ctrlKey || keys.ctrlKey,
+          metaKey: e.metaKey || keys.metaKey,
+          shiftKey: e.shiftKey || keys.shiftKey
         };
         dispatch(sequence.target, new MouseEvent("click", init));
         if (double) dispatch(sequence.target, new MouseEvent("dblclick", init));
@@ -462,8 +465,7 @@
             target: canvasAtPoint(event.clientX, event.clientY, event.target),
             moved: false,
             mouse: true,
-            started: false,
-            modifiers: runtime.touchShortcutFlags?.() ?? {}
+            started: false
           };
           suppressMouseUntil = performance.now() + 1e3;
           const sequence2 = direct;
@@ -482,8 +484,7 @@
           pan: false,
           vx: 0,
           vy: 0,
-          buffered: [event],
-          modifiers: runtime.touchShortcutFlags?.() ?? {}
+          buffered: [event]
         };
         suppressMouseUntil = performance.now() + 1e3;
         hold = setTimeout(() => {
@@ -561,7 +562,7 @@
                 button: 0,
                 pressure: 0,
                 detail: double ? 2 : 1,
-                ...sequence.modifiers
+                ...held()
               };
               const accepted = dispatch(
                 sequence.target,
@@ -709,6 +710,36 @@
       if (!replaying && enabled && event.isTrusted && (fingerGesture || multiContact))
         suppress(event, true);
     };
+    const late = /* @__PURE__ */ new Set();
+    const lateModifiers = (event) => {
+      if (replaying || !event.isTrusted || !(event instanceof PointerEvent) || event.pointerType === "mouse")
+        return;
+      const keys = held();
+      const on = Object.values(keys).some(Boolean);
+      if (event.type === "pointerdown") {
+        late.delete(event.pointerId);
+        return;
+      }
+      const rewriting = late.has(event.pointerId) || on;
+      if (event.type === "pointerup" || event.type === "pointercancel")
+        late.delete(event.pointerId);
+      else if (rewriting) late.add(event.pointerId);
+      if (!rewriting || !event.target) return;
+      suppress(event, true);
+      dispatch(
+        event.target,
+        new PointerEvent(event.type, {
+          ...pointerInit(event),
+          view: window,
+          tiltX: event.tiltX,
+          tiltY: event.tiltY,
+          altKey: event.altKey || !!keys.altKey,
+          ctrlKey: event.ctrlKey || !!keys.ctrlKey,
+          metaKey: event.metaKey || !!keys.metaKey,
+          shiftKey: event.shiftKey || !!keys.shiftKey
+        })
+      );
+    };
     const groups = [
       [["gotpointercapture", "lostpointercapture"], capture],
       [["gesturestart", "gesturechange", "gestureend"], nativeGesture],
@@ -716,7 +747,12 @@
       [["wheel"], ctrlWheel],
       [["pointerdown", "pointermove", "pointerup", "pointercancel"], pointer],
       [["touchstart", "touchmove", "touchend", "touchcancel"], touch],
-      [["mousedown", "mousemove", "mouseup", "click", "dblclick"], mouse]
+      [["mousedown", "mousemove", "mouseup", "click", "dblclick"], mouse],
+      // Last, so every other input script has seen the original first.
+      [
+        ["pointerdown", "pointermove", "pointerup", "pointercancel"],
+        lateModifiers
+      ]
     ];
     for (const [names, listener] of groups)
       for (const name of names)

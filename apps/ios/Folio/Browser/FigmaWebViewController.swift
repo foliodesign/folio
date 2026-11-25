@@ -452,6 +452,7 @@ final class FigmaWebViewController: UIViewController, WKNavigationDelegate, WKUI
   }
   override func viewDidLayoutSubviews() {
     super.viewDidLayoutSubviews()
+    updateSideInsets()
     zoomViewport?.setNeedsLayout()
     // Attachment/appearance can precede nonzero WebKit geometry. Retain H1's
     // initial request until layout, without requesting optional chrome focus.

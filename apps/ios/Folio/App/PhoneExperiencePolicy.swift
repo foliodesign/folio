@@ -57,6 +57,11 @@ enum PhoneExperiencePolicy {
   /// reports false.
   static var isDuo: Bool { isPhone && UIApplication.shared.supportsMultipleScenes }
 
+  /// Plain iPhones lay the page out to the screen's side edges; the web view keeps the side safe
+  /// areas itself, and in landscape the canvas extends into them past closed side panels
+  /// (maintainer, 2026-11-25). The Duo keeps its own column layouts.
+  static var canvasToScreenEdges: Bool { isPhone && !isDuo }
+
   /// Records proof of Pencil support. Returns true when it just made `supportsPencil` true.
   @discardableResult
   static func notePencilSeen(_ defaults: UserDefaults = .standard) -> Bool {

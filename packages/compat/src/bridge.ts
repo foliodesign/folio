@@ -94,6 +94,7 @@ export interface FolioRuntime {
   phoneSheetDrag?: (phase: unknown, fraction: unknown) => boolean;
   phoneFieldKey?: (key: unknown) => boolean;
   phoneKeyboard?: (overlap: unknown, floor: unknown) => void;
+  phoneSafeSides?: (left: unknown, right: unknown) => void;
   disposePhoneLayout?: () => void;
   dispose: () => void;
 }

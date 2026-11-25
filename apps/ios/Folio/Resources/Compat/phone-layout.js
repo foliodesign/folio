@@ -172,6 +172,7 @@
     const sidesOn = () => wide && sidesWanted;
     const open = /* @__PURE__ */ new Set();
     let reserve = [0, 0];
+    let safeSides = [0, 0];
     let railReserve = 0;
     let measurementDirty = true;
     let measureAfter = 0;
@@ -339,8 +340,8 @@
       const [left, right] = reserve;
       if (!sidesOn()) return [left, right];
       return [
-        open.has("left") ? railReserve : left,
-        open.has("right") ? 0 : right
+        open.has("left") ? railReserve : left + safeSides[0],
+        open.has("right") ? 0 : right + safeSides[1]
       ];
     };
     const sidePanels = () => sidesOn() ? [
@@ -909,6 +910,15 @@
       css();
       if (field && keyboard > 0) reveal();
     };
+    runtime.phoneSafeSides = (left, right) => {
+      const number = (n) => typeof n === "number" && Number.isFinite(n) ? Math.round(Math.min(200, Math.max(0, n))) : 0;
+      const next = [number(left), number(right)];
+      if (next[0] === safeSides[0] && next[1] === safeSides[1]) return;
+      safeSides = next;
+      if (!enabled) return;
+      css();
+      post();
+    };
     const setSides = (wanted) => {
       const before = sidesOn();
       sidesWanted = wanted;
@@ -1084,6 +1094,7 @@
       delete runtime.phoneSheetDrag;
       delete runtime.phoneFieldKey;
       delete runtime.phoneKeyboard;
+      delete runtime.phoneSafeSides;
       delete runtime.disposePhoneLayout;
     };
   }

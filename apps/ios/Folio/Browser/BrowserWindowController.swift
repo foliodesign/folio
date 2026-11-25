@@ -187,11 +187,15 @@ final class BrowserWindowController: UIViewController {
       toolPill.setShown(false, animated: false)
       // Rests on the keyboard and moves with it, above the sheet.
       view.insertSubview(keyRow, aboveSubview: content)
+      // Plain iPhones: the content runs under the side safe areas; the key row stays out of them.
+      let edges = PhoneExperiencePolicy.canvasToScreenEdges
+      let sideLeading = edges ? view.safeAreaLayoutGuide.leadingAnchor : content.leadingAnchor
+      let sideTrailing = edges ? view.safeAreaLayoutGuide.trailingAnchor : content.trailingAnchor
       attachFloatingPill()
       NSLayoutConstraint.activate([
         keyRow.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor, constant: -8),
-        keyRow.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 8),
-        keyRow.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -8),
+        keyRow.leadingAnchor.constraint(equalTo: sideLeading, constant: 8),
+        keyRow.trailingAnchor.constraint(equalTo: sideTrailing, constant: -8),
       ])
       keyRow.onKey = { [weak self] key in self?.active?.phoneFieldKey(key) }
       toolPill.onKey = { [weak self] key in
@@ -240,7 +244,7 @@ final class BrowserWindowController: UIViewController {
       equalTo: view.topAnchor, constant: Self.columnTitleBarTop)
     stripColumnHeight = strip.heightAnchor.constraint(
       equalToConstant: Self.columnTitleBarHeight)
-    let phone = PhoneExperiencePolicy.isPhone
+    let phone = PhoneExperiencePolicy.isPhone && !PhoneExperiencePolicy.canvasToScreenEdges
     contentLeadingSafe = content.leadingAnchor.constraint(
       equalTo: phone ? view.safeAreaLayoutGuide.leadingAnchor : view.leadingAnchor)
     contentLeadingEdge = content.leadingAnchor.constraint(equalTo: view.leadingAnchor)
@@ -404,8 +408,7 @@ final class BrowserWindowController: UIViewController {
   }
 
   /// The pill floats over the canvas, 8 pt above the bar (or the grab bar), in portrait and in
-  /// landscape. The content view stays inside the horizontal safe area and above the home
-  /// indicator, so the pill does too.
+  /// landscape, above the home indicator and inside the side safe areas (`placeToolPill`).
   private func attachFloatingPill() {
     view.insertSubview(toolPill, belowSubview: keyRow)
     let bottom = toolPill.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -8)
@@ -433,10 +436,14 @@ final class BrowserWindowController: UIViewController {
   /// Re-centres the pill between the open side panels, with the panel transition's timing.
   private func placeToolPill(animated: Bool) {
     let scale = max(interfaceScale, 0.1)
+    // Plain iPhones: open side panels start inside the side safe areas, and the pill stays there.
+    let safe = PhoneExperiencePolicy.canvasToScreenEdges ? view.safeAreaInsets : .zero
     let span = Self.pillSpan(
       contentWidth: content.bounds.width,
-      left: CGFloat(pillPanels.left) * scale + (pillColumnRight ? 0 : pillColumnInset),
-      right: CGFloat(pillPanels.right) * scale + (pillColumnRight ? pillColumnInset : 0))
+      left: CGFloat(pillPanels.left) * scale + safe.left
+        + (pillColumnRight ? 0 : pillColumnInset),
+      right: CGFloat(pillPanels.right) * scale + safe.right
+        + (pillColumnRight ? pillColumnInset : 0))
     guard toolPillCenter?.constant != span.offset || toolPillWidth?.constant != -span.inset
     else { return }
     toolPillCenter?.constant = span.offset
@@ -514,7 +521,7 @@ final class BrowserWindowController: UIViewController {
   }
 
   private func releaseShortcuts() {
-    bottomBar.updateMask(0)
+    bottomBar.releaseAll()
     active?.releaseTouchShortcuts()
   }
 
@@ -577,6 +584,8 @@ final class BrowserWindowController: UIViewController {
   /// the Duo top bar, the side column with tools, the page out to the column's edge. Regular
   /// (unfolded full screen): the iPad strip and bottom bar stay, minus what the column carries.
   private func placeWindowChrome() {
+    // Rotation moves the side safe areas the pill keeps out of.
+    if PhoneExperiencePolicy.canvasToScreenEdges { placeToolPill(animated: false) }
     let column = duoColumnPlacement()
     if column?.side != duoColumn?.side || column?.compact != duoColumn?.compact {
       duoColumn = column
@@ -642,7 +651,9 @@ final class BrowserWindowController: UIViewController {
       PhoneExperiencePolicy.isPhone && !compactLayout && view.bounds.width > view.bounds.height
     strip.clearsPageRail = duoLandscape
     bottomBar.leadingReserve = duoLandscape ? content.frame.minX + strip.pageRailReserve : 0
-    strip.pageLeading = content.frame.minX - strip.frame.minX
+    // Plain iPhones: the page runs under the side safe area, Home stays out of it.
+    let safeLeft = PhoneExperiencePolicy.canvasToScreenEdges ? view.safeAreaInsets.left : 0
+    strip.pageLeading = max(content.frame.minX, safeLeft) - strip.frame.minX
     placePageTrailingBorder(shown: duoLandscape && content.frame.maxX < view.bounds.maxX - 1)
   }
 
@@ -1214,7 +1225,7 @@ final class BrowserWindowController: UIViewController {
     }
     controller.onShortcutState = { [weak self, weak controller] mask in
       guard let self, self.active === controller else { return }
-      self.bottomBar.updateMask(mask)
+      self.bottomBar.pageReported(mask)
     }
     controller.onRoute = { [weak self, weak controller] url, configuration in
       guard let self, controller != nil else { return nil }

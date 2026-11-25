@@ -984,6 +984,50 @@ test("selecting on the canvas never blinks the pill: tooltips, badges and brief 
   assert.equal(h.last().overlay, false);
 });
 
+test("landscape side panels: closed sides reach the screen edges past the safe areas", () => {
+  const editor = figmaEditor();
+  const canvas = withCanvas(editor);
+  const wheels = [];
+  canvas.dispatchEvent = (event) => wheels.push(event);
+  const h = harness(editor);
+  h.context.WheelEvent = class {
+    constructor(type, init) {
+      Object.assign(this, init, { type });
+    }
+  };
+  h.runtime.setPhoneLayout(true, true, true, false, true);
+  h.resize(750 + 290 + 241);
+  canvas.rect = [290, 0, 750, 330];
+  h.advance(1000);
+  // Native applies the overscan; Figma keeps its reservations and gives the canvas the rest.
+  const apply = () => {
+    const width = 750 + h.last().left + h.last().right;
+    h.resize(width);
+    canvas.rect = [290, 0, width - 290 - 241, 330];
+    h.advance(20);
+  };
+  h.runtime.phoneSafeSides(62, 62);
+  // Both closed: the canvas runs through both side safe areas to the screen edges.
+  assert.deepEqual([h.last().left, h.last().right], [290 + 62, 241 + 62]);
+  apply();
+  assert.deepEqual([h.last().left, h.last().right], [290 + 62, 241 + 62]);
+  // Layers opens inside the left safe area, as before; the right side still reaches the edge.
+  h.runtime.phonePanel("left");
+  assert.deepEqual([h.last().left, h.last().right], [49, 241 + 62]);
+  apply();
+  // One pan covers both the panel and the safe area the canvas no longer reaches into.
+  assert.equal(wheels.length, 1);
+  assert.equal(wheels[0].deltaX, 241 + 62);
+  // Properties opens inside the right safe area.
+  h.runtime.phonePanel("right");
+  assert.deepEqual([h.last().left, h.last().right], [49, 0]);
+  // Invalid insets count as none.
+  h.runtime.phoneSafeSides(Number.NaN, -5);
+  h.runtime.phonePanel("left");
+  h.runtime.phonePanel("right");
+  assert.deepEqual([h.last().left, h.last().right], [290, 241]);
+});
+
 test("landscape side panels need the wide layout; without it landscape keeps the sheet", () => {
   const editor = figmaEditor();
   withCanvas(editor);
